@@ -1,0 +1,28 @@
+{
+  "version": 6,
+  "configurePresets": [
+    { "name": "core", "generator": "Visual Studio 17 2022", "architecture": "x64", "toolset": "v143,version=14.38.33130", "binaryDir": "${sourceDir}/out/core-msvc1938", "cacheVariables": { "KANTAN_BUILD_APP": "OFF" } },
+    { "name": "desktop", "generator": "Visual Studio 17 2022", "architecture": "x64", "toolset": "v143,version=14.38.33130", "binaryDir": "${sourceDir}/out/desktop-msvc1938", "cacheVariables": { "KANTAN_BUILD_APP": "ON" } },
+    { "name": "core-asan", "inherits": "core", "binaryDir": "${sourceDir}/out/core-asan", "cacheVariables": { "KANTAN_SANITIZE": "ON" } },
+    { "name": "linux-core", "generator": "Ninja", "binaryDir": "${sourceDir}/out/linux-core", "cacheVariables": { "KANTAN_BUILD_APP": "OFF", "CMAKE_BUILD_TYPE": "Release" } },
+    { "name": "linux-asan", "inherits": "linux-core", "binaryDir": "${sourceDir}/out/linux-asan", "cacheVariables": { "KANTAN_SANITIZE": "ON", "CMAKE_BUILD_TYPE": "RelWithDebInfo" } },
+    { "name": "linux-desktop", "generator": "Ninja", "binaryDir": "${sourceDir}/out/linux", "cacheVariables": { "KANTAN_BUILD_APP": "ON", "CMAKE_BUILD_TYPE": "Release", "KANTAN_QT_VERSION": "6.4", "KANTAN_QT_EXACT": "OFF" } }
+  ],
+  "buildPresets": [
+    { "name": "core", "configurePreset": "core", "configuration": "Release" },
+    { "name": "desktop", "configurePreset": "desktop", "configuration": "Release" },
+    { "name": "core-asan", "configurePreset": "core-asan", "configuration": "RelWithDebInfo" },
+    { "name": "linux-core", "configurePreset": "linux-core" },
+    { "name": "linux-asan", "configurePreset": "linux-asan" },
+    { "name": "linux-desktop", "configurePreset": "linux-desktop" }
+  ],
+  "testPresets": [
+    { "name": "core", "configurePreset": "core", "configuration": "Release", "output": { "outputOnFailure": true } },
+    { "name": "desktop", "configurePreset": "desktop", "configuration": "Release", "output": { "outputOnFailure": true } },
+    { "name": "core-asan", "configurePreset": "core-asan", "configuration": "RelWithDebInfo", "output": { "outputOnFailure": true } },
+    { "name": "linux-core", "configurePreset": "linux-core", "output": { "outputOnFailure": true } },
+    { "name": "linux-asan", "configurePreset": "linux-asan", "output": { "outputOnFailure": true } },
+    { "name": "linux-desktop", "configurePreset": "linux-desktop", "output": { "outputOnFailure": true }, "environment": { "QT_QPA_PLATFORM": "offscreen" } }
+  ]
+}
+

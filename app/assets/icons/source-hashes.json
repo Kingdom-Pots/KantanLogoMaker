@@ -1,0 +1,210 @@
+[
+  {
+    "file": "add.svg",
+    "sha256": "167c7f2703870a06ff80dbbcc5d60fa37bfae9d225f37ed3d585949239bc3431"
+  },
+  {
+    "file": "align_bottom.svg",
+    "sha256": "cf73058dd39d41af743edb2745e4ae1b7853a84b56bd11597ab2f273267fdee9"
+  },
+  {
+    "file": "align_center_horizontal.svg",
+    "sha256": "82c1f552fecdded00da53396597fcd9b792eb9e3e17697782ce162eec453930d"
+  },
+  {
+    "file": "align_center_vertical.svg",
+    "sha256": "564c2eae060df2ccfad957bb76c5c40605fc801241d9862cb4e99baa552fe62e"
+  },
+  {
+    "file": "align_left.svg",
+    "sha256": "a7a86baf120516f885934681f90f9b054ac282202232c76eaf2e524316a7a719"
+  },
+  {
+    "file": "align_right.svg",
+    "sha256": "1e08d7cf63c7b9c41fc238b622dc2b8f8c4b3122f5f5d0f4138ff906a120ca8a"
+  },
+  {
+    "file": "align_top.svg",
+    "sha256": "430c3802d876d03f9e552df6cbe9764b4c09ef7a14dead4fa24889d6b052048a"
+  },
+  {
+    "file": "arrow_fit.svg",
+    "sha256": "97d11cece4636f60df68055f7b0b07dbdf1b52ecaf555b3fe7a6b49fb2c1e1c0"
+  },
+  {
+    "file": "arrow_reset.svg",
+    "sha256": "03ff2ad051f0b215f91b7fb1c9c0bb032dd7c8489ad37ab71f3aeedf73f8d470"
+  },
+  {
+    "file": "checkmark.svg",
+    "sha256": "643b76be6638a22b348c14990f0957335fbe98b39e9adb7ba7b4dc86b6745177"
+  },
+  {
+    "file": "chevron_down.svg",
+    "sha256": "52b3569967dcd33b226bd19a7cb3bf1bf491dd22822c4c3a8d36f80cb6612ffa"
+  },
+  {
+    "file": "chevron_right.svg",
+    "sha256": "ebe7bfcc2d019af0970c8d77ecd35ab49b2981c46d923e676d1e698dc9142fc4"
+  },
+  {
+    "file": "circle_half_fill.svg",
+    "sha256": "513aab607fc243668bea6d41c6fb8ea2bccdac5a56fc8ca375f064d543a91e16"
+  },
+  {
+    "file": "color.svg",
+    "sha256": "82a9db90034f33542b89c8658b351955da13033c0a00ed6212815c78aa89b25a"
+  },
+  {
+    "file": "copy.svg",
+    "sha256": "ae4268eef9bc6cae4c77a8a2b3b8607861594e0e834e4ed0730667f92e73609e"
+  },
+  {
+    "file": "delete.svg",
+    "sha256": "0f0769b54d5862f2390ea7e51aab825e5dc10d4fa36da34d1559acc55799be92"
+  },
+  {
+    "file": "direct_select.svg",
+    "sha256": "2db14a27d626e7d7a1b5fa34c23a5f8b94b65b32e14bfd48d7bd9a012caa94fe"
+  },
+  {
+    "file": "dismiss.svg",
+    "sha256": "f23a501be08e93ad334f1705be0c9e8224a8e7457bd884fe59263db1c6a4f3dc"
+  },
+  {
+    "file": "distribute_horizontal.svg",
+    "sha256": "5964183d38aeeec2f9a70edadf92cbf5847f71080ed3bfbe0e03df0823dd8764"
+  },
+  {
+    "file": "distribute_vertical.svg",
+    "sha256": "36139f64f5d0918e3072d99d2ebaed291720ad99ae2f2e574ad4646c5f9a2105"
+  },
+  {
+    "file": "ellipse.svg",
+    "sha256": "8127dec10fc354a0bf5f5d81b0d7dabb8202aba9889773a92fca049a1416d9f2"
+  },
+  {
+    "file": "export.svg",
+    "sha256": "3165c0510fd35f79e71671f9d876c3cc4e51f718460c0088da69c37af009e2a9"
+  },
+  {
+    "file": "eye.svg",
+    "sha256": "4a9ca45d072c986e159b46c9c19d4290463edabc507db07c28e46f64bddefb47"
+  },
+  {
+    "file": "flip_horizontal.svg",
+    "sha256": "35951a86ce472a92cb59806104c95ace8f4d11748d800d701485f198f5c21a32"
+  },
+  {
+    "file": "flip_vertical.svg",
+    "sha256": "d2655238256e9f50745b821efd9ba84c6c6a49968c1112956c1d9729a501c29f"
+  },
+  {
+    "file": "folder_add.svg",
+    "sha256": "8b37f8eab928a9be22413cf96742021047887a72bfdd0e65bd49bd73acaa6d78"
+  },
+  {
+    "file": "font.svg",
+    "sha256": "51064a300f1cd26a2e3d3b0556d4e1c669077416ea1aa485857af0e07ada858c"
+  },
+  {
+    "file": "grid.svg",
+    "sha256": "206c7049fc72a2072f0c429a958f4bb7021a96418879565ea7bcc8b528ad0dc3"
+  },
+  {
+    "file": "group.svg",
+    "sha256": "a5cb178c90cadac409920e3fefe4fedd194d9128d83822740f4a5c3dbd4f9296"
+  },
+  {
+    "file": "hand.svg",
+    "sha256": "0413ac9cfff8e085a85e90906e3e25bbccf2a46946b3c538762cca36044de5f6"
+  },
+  {
+    "file": "image.svg",
+    "sha256": "205577a958d9ba03377d211b00dc625abaa56a878719dd5ea880f8e2ea8cfac8"
+  },
+  {
+    "file": "link.svg",
+    "sha256": "6792b4658fb8334e1214ec8c558e1295676d084ae7d3b7e60fe1339bfed28548"
+  },
+  {
+    "file": "lock_closed.svg",
+    "sha256": "589e952219e9f3f018b33bebc9e2fe9ac8038cf2db5bc03350d5ff20a13dcd60"
+  },
+  {
+    "file": "lock_open.svg",
+    "sha256": "fdc90527c5838060e239e92a9a4ea4ac21f80eb58565ed78133e8e41c1ae6b32"
+  },
+  {
+    "file": "move.svg",
+    "sha256": "6aa2820c111080d4f2a40eb435462af5372ea4e6528e2d565c9d5da3c332cb0b"
+  },
+  {
+    "file": "pen.svg",
+    "sha256": "33a840cc52a70f4522bdefb29683c24095e6a16febc915814dece15cd93d9445"
+  },
+  {
+    "file": "picker.svg",
+    "sha256": "760f2318a6cca80a85e254428b843d97e4f3c974c2293c80ea1a11836e8b42ec"
+  },
+  {
+    "file": "rectangle.svg",
+    "sha256": "4b185500704e1fffb80ef4413d4488d7652c4c960fcd3c4e07a84d8fadd8bdb0"
+  },
+  {
+    "file": "repeat.svg",
+    "sha256": "755a3898be0ab00f910793f88f1e06dbf771d18533f864a12e4f41c799177f34"
+  },
+  {
+    "file": "resize.svg",
+    "sha256": "cdae809b2948d5a97cfec900b9a12bb3de39613e2dae3bee537d5de16ae47706"
+  },
+  {
+    "file": "rotate.svg",
+    "sha256": "fb3f9bd0a6df4f583417f618137702c5b9fe294ee7b79ab393d70a66df40522f"
+  },
+  {
+    "file": "select.svg",
+    "sha256": "efe2e0a90260aedc81fefc45658d0e7d77ce78e09bf345ad8aedc6b0e28fd043"
+  },
+  {
+    "file": "settings.svg",
+    "sha256": "5ac05e6e11c9ec9f24703091c42ca1f5c91f4032cb0eee35c892d1872a38871b"
+  },
+  {
+    "file": "shape_exclude.svg",
+    "sha256": "f6e944e682f619e94d3351ef7df41722edd876c8dbf6f73a9f46c5308cde1756"
+  },
+  {
+    "file": "shape_intersect.svg",
+    "sha256": "4609b9220365ae14d8b8948d8b97237d98606346b67644d31378ddbcecf93a89"
+  },
+  {
+    "file": "shape_subtract.svg",
+    "sha256": "08b93ac3205083b83308d0c0dcce106b1260b0a83c138d9a54f99424e6804e03"
+  },
+  {
+    "file": "shape_union.svg",
+    "sha256": "602bbbc84da51cae44b6648631311a6b6cbe67c6a2b45cf9eef369a6e2e3491c"
+  },
+  {
+    "file": "shapes.svg",
+    "sha256": "cce78bcdd860e07a8af852b88a3d41046713d79b2acfbae49a13dc086bd8de0e"
+  },
+  {
+    "file": "sparkle.svg",
+    "sha256": "e50a6e9391a9da9a96f5378cd06645c7fe9c00bee9713d34c63f83983a3f6935"
+  },
+  {
+    "file": "star.svg",
+    "sha256": "539d0a2ae49d00b12a9709dd02ff096bfefe22a8b199c5b0d0e7768afcee83bb"
+  },
+  {
+    "file": "text.svg",
+    "sha256": "e07a5cb13dd4f528f843795f6975536cbb20382e2dda5e92c4e1bd1a525315fc"
+  },
+  {
+    "file": "zoom.svg",
+    "sha256": "bfa7c14efab4004ee394d4937c6f448442017c2c305ab5c9e7ffafab3ab9eca7"
+  }
+]

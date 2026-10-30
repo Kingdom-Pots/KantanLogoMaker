@@ -1,0 +1,9 @@
+/.deps/
+/.tools/
+/out/
+/dist/
+/CMakeUserPresets.json
+*.user
+*.tmp
+__pycache__/
+/.transfer/

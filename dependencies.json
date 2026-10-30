@@ -1,0 +1,68 @@
+{
+  "qt": {
+    "version": "6.8.3",
+    "architecture": "win64_msvc2022_64",
+    "archives": [
+      "qtbase"
+    ],
+    "license": "LGPL-3.0 development distribution, dynamically linked"
+  },
+  "aqtinstall": "3.3.0",
+  "miniz": {
+    "version": "3.1.0",
+    "url": "https://github.com/richgel999/miniz/archive/refs/tags/3.1.0.tar.gz",
+    "sha256": "09569fc19d060ac9f5999ba9356728c2494ebe6a24ac0eb0a6b6ae3d396cfea6",
+    "license": "MIT"
+  },
+  "clipper2": {
+    "version": "1.5.4",
+    "url": "https://github.com/AngusJohnson/Clipper2",
+    "commit": "ef88ee97c0e759792e43a2b2d8072def6c9244e8",
+    "license": "BSL-1.0",
+    "vendored": "third_party/clipper2 (CPP/Clipper2Lib include + src, unmodified)",
+    "files": {
+      "third_party/clipper2/include/clipper2/clipper.core.h": "bb003258fa7c9ce6f7d1847ae4e0b6ff419528b6f9c58e17622ce3600018d297",
+      "third_party/clipper2/include/clipper2/clipper.engine.h": "c3e8b7cabc80f5ab2592dd4401a8c445bd43422139ff216591aae94de1b5a175",
+      "third_party/clipper2/include/clipper2/clipper.export.h": "746d2eb871f6717722681f1cc35a612f1f9e8397f9b01797d8f5fc201cf2175d",
+      "third_party/clipper2/include/clipper2/clipper.h": "b9674f21cb6add7c5e252220d80af2bdc7e773b526947d2800aa499b716069bf",
+      "third_party/clipper2/include/clipper2/clipper.minkowski.h": "951b3f1d9b804f9fe9f1a142e6133c2efda2ba1c26c47e4c7de14c6d03a0eb39",
+      "third_party/clipper2/include/clipper2/clipper.offset.h": "00d0b670f40d030fad5cd658b71a34b8ff3185673825bbcc9f40e63d9216cbb2",
+      "third_party/clipper2/include/clipper2/clipper.rectclip.h": "279c6ae467cf9cec001c473d569dd7943a241690f5d64a17561efcb1a8e2e38e",
+      "third_party/clipper2/include/clipper2/clipper.version.h": "124189ed3b71a705c04e81abf645a57d3d3e525dc1b1d9518e524c000c341bd2",
+      "third_party/clipper2/src/clipper.engine.cpp": "cc24e338e0df3bbf7b9146724e6bdfa001d16128583a04944a8399a7ceff7676",
+      "third_party/clipper2/src/clipper.offset.cpp": "b17738e96e1bd442f1589205fda0a752d228c7d8b4d0779ff50145fc43d4764c",
+      "third_party/clipper2/src/clipper.rectclip.cpp": "f2f86e07013596d00737314584edf21bd6abcbc9b3aefc6efe547928c0590515"
+    }
+  },
+  "nanosvg": {
+    "url": "https://github.com/memononen/nanosvg",
+    "commit": "239e102ec2c691f2902e20ace2ed36ee4a35cfe6",
+    "license": "zlib",
+    "vendored": "third_party/nanosvg/nanosvg.h (unmodified)",
+    "files": {
+      "third_party/nanosvg/nanosvg.h": "e34fd5d084be106cea972d19ce5d27fd96d17ba89f8d06bdceee058420c8b2b0"
+    }
+  },
+  "toolchain": {
+    "compiler": "MSVC 19.38.33141 / Visual Studio 2022",
+    "toolset": "14.38.33130",
+    "cmakeMinimum": "3.25",
+    "validatedCmake": "4.3.3",
+    "formatter": "clang-format 17.0.3",
+    "installerPython": "3.12",
+    "linuxValidation": "GCC 13.3 / Clang 18 with Qt 6.4.2 (headless checks only)"
+  },
+  "fluentSystemIcons": {
+    "commit": "a347af95478f989038cccbf085978865264c048a",
+    "url": "https://github.com/microsoft/fluentui-system-icons",
+    "license": "MIT",
+    "usage": "52 regular 24px tool and interface icons, recolored and rasterized at 1x/2x/3x"
+  },
+  "testFont": {
+    "file": "tests/fixtures/KantanTestSans.ttf",
+    "source": "Renamed glyph subset of DejaVu Sans Bold",
+    "license": "Bitstream Vera (see tests/fixtures/KantanTestSans-LICENSE.txt)",
+    "sha256": "d37a24ad9c34a3c4d33a91d0e9c389597af3b72c954ea3144ba4937c91bcf891",
+    "usage": "tests only; not packaged"
+  }
+}
