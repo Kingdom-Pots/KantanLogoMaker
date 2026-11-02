@@ -38,13 +38,17 @@ enum class JoinStyle { Miter, Round, Bevel };
 enum class CapStyle { Butt, Round, Square };
 enum class BooleanOp { Union, Subtract, Intersect, Exclude };
 enum class NodeType { Corner, Smooth };
+enum class CornerStyle { Round, Chamfer, Inverted };
 // A path anchor with absolute Bézier handles. A handle equal to its anchor means a straight side.
+// When `radius > 0` on a straight-sided corner, flattening/rendering rounds, chamfers or inverts that vertex.
 struct Node {
     Point anchor, in, out;
     NodeType type{NodeType::Corner};
+    double radius{};
+    CornerStyle cornerStyle{CornerStyle::Round};
     auto operator<=>(const Node&) const = default;
     static Node corner(Point p) {
-        return {p, p, p, NodeType::Corner};
+        return {p, p, p, NodeType::Corner, 0., CornerStyle::Round};
     }
 };
 struct SubPath {
@@ -78,7 +82,10 @@ double distanceToOutline(const Polygons& polygons, Point p, bool closed = true);
 Path fromPolygons(const Polygons& polygons, FillRule rule = FillRule::NonZero);
 void reverse(SubPath& subpath);
 // Rounded-corner helpers: append a corner at `p` between `prev` and `next` with radius r (arc as cubics).
-void appendRoundedCorner(SubPath& out, Point prev, Point p, Point next, double radius);
+void appendRoundedCorner(SubPath& out, Point prev, Point p, Point next, double radius,
+                         CornerStyle style = CornerStyle::Round);
+// Expand any nodes with `radius > 0` on straight-sided corners into explicit arc/chamfer/inverted nodes.
+Path resolvedCorners(const Path& path);
 // Cubic approximation of an arc on a circle; angles in radians, appended as nodes (first node merged).
 void appendArc(SubPath& out, Point center, double rx, double ry, double start, double sweep);
 Path ellipsePath(Point center, double rx, double ry);

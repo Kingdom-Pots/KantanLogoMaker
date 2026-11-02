@@ -1,4 +1,5 @@
 #include "app/ExportDialog.h"
+#include "app/I18n.h"
 #include "io/ExportJob.h"
 #include "io/ExportPresets.h"
 #include "io/Images.h"
@@ -28,7 +29,7 @@ ExportDialog::ExportDialog(Snapshot document, std::vector<ObjectId> selection,
                            std::shared_ptr<AppServices> services, QString baseName, QWidget* parent)
     : QDialog(parent), document_(std::move(document)), selection_(std::move(selection)),
       services_(std::move(services)) {
-    setWindowTitle("Export");
+    setWindowTitle(trUi("Export"));
     setObjectName("exportDialog");
     resize(760, 560);
     const auto& s = document_->exportSettings;
@@ -62,10 +63,14 @@ ExportDialog::ExportDialog(Snapshot document, std::vector<ObjectId> selection,
     auto grid = new QGridLayout(sizes);
     png_ = new QCheckBox("PNG");
     ico_ = new QCheckBox("ICO");
+    svg_ = new QCheckBox("SVG");
+    svg_->setObjectName("exportSvg");
     png_->setChecked(s.png);
     ico_->setChecked(s.ico);
+    svg_->setChecked(s.svg);
     grid->addWidget(png_, 0, 1);
     grid->addWidget(ico_, 0, 2);
+    grid->addWidget(svg_, 0, 3);
     int row = 1;
     for (int size : Standard) {
         grid->addWidget(new QLabel(QStringLiteral("%1 × %1").arg(size)), row, 0);
@@ -218,7 +223,7 @@ ExportDialog::ExportDialog(Snapshot document, std::vector<ObjectId> selection,
     previewTimer_.setInterval(80);
     connect(&previewTimer_, &QTimer::timeout, this, &ExportDialog::updatePreview);
     const auto changed = [this] { previewTimer_.start(); };
-    for (auto* box : {png_, ico_, transparent_, selectionOnly_})
+    for (auto* box : {png_, ico_, svg_, transparent_, selectionOnly_})
         connect(box, &QCheckBox::toggled, this, changed);
     for (auto& [size, box] : pngSizes_)
         connect(box, &QCheckBox::toggled, this, changed);
@@ -233,6 +238,7 @@ ExportDialog::ExportDialog(Snapshot document, std::vector<ObjectId> selection,
     updateIcoAvailability();
     load(base_);
     updatePreview();
+    retranslateWidgetTree(this);
 }
 void ExportDialog::applyPreset(int index) {
     auto current = settings();
@@ -250,11 +256,12 @@ void ExportDialog::applyPreset(int index) {
 }
 void ExportDialog::load(const ExportSettings& s) {
     std::vector<QSignalBlocker> blockers;
-    for (auto* box : {png_, ico_, transparent_})
+    for (auto* box : {png_, ico_, svg_, transparent_})
         blockers.emplace_back(box);
     blockers.emplace_back(naming_);
     png_->setChecked(s.png);
     ico_->setChecked(s.ico);
+    svg_->setChecked(s.svg);
     transparent_->setChecked(s.transparent);
     for (auto& [size, box] : pngSizes_) {
         QSignalBlocker b(box);
@@ -293,6 +300,7 @@ ExportSettings ExportDialog::settings() const {
     ExportSettings s = base_;
     s.png = png_->isChecked();
     s.ico = ico_->isChecked();
+    s.svg = svg_->isChecked();
     s.pngSizes.clear();
     s.icoSizes.clear();
     for (const auto& [size, box] : pngSizes_)

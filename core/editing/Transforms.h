@@ -43,6 +43,11 @@ struct SnapResult {
 SnapResult snapTranslation(const DocumentData& doc, Box moving, Point delta,
                            const std::vector<ObjectId>& exclude, const SnapSettings& settings,
                            double tolerance, const RenderServices& services);
+// Snap a moving path node anchor in artboard coordinates to other nodes, objects, guides and artboard.
+// When `constrainAxis` is true (Shift held), movement is locked to the dominant horizontal or vertical axis.
+SnapResult snapNode(const DocumentData& doc, ObjectId objectId, std::size_t subpath, std::size_t node,
+                    Point startWorld, Point delta, bool constrainAxis, const SnapSettings& settings,
+                    double tolerance, const RenderServices& services);
 Point snapPoint(const DocumentData& doc, Point point, const std::vector<ObjectId>& exclude,
                 const SnapSettings& settings, double tolerance, const RenderServices& services,
                 std::array<SnapKind, 2>* kinds = nullptr);

@@ -2,6 +2,7 @@
 #include "history/History.h"
 #include "raster/Image.h"
 #include <functional>
+#include <optional>
 
 namespace kantan {
 struct Change {
@@ -100,7 +101,8 @@ class Editor {
         std::uint64_t generation{};
     };
     Result commit(std::string label, bool structural, const std::function<Result(DocumentData&)>& edit);
-    Result publish(Snapshot before, std::shared_ptr<DocumentData> after, std::string label, bool structural);
+    Result publish(Snapshot before, std::shared_ptr<DocumentData> after, std::string label, bool structural,
+                   std::optional<std::vector<ObjectId>> selectionBefore = std::nullopt);
     Result applyReplacements(DocumentData& doc, std::vector<Object>& replacements, bool checkLocks) const;
     ObjectId nextId();
     std::shared_ptr<MemoryBudget> budget_;

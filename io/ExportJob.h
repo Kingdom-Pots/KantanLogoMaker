@@ -7,6 +7,7 @@ namespace kantan::io {
 struct ExportFile {
     QString path;
     bool ico{};
+    bool svg{};
     std::vector<ExportSize> sizes; // one for PNG, all entries for ICO
 };
 struct ExportPlan {

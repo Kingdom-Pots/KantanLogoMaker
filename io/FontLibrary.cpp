@@ -24,6 +24,9 @@ QString FontLibrary::keyFor(const QByteArray& data) {
            QCryptographicHash::hash(data, QCryptographicHash::Sha256).toHex().left(16);
 }
 QString FontLibrary::fallbackFamily() {
+    for (const auto* preferred : {"Bahnschrift", "Franklin Gothic Medium", "Trebuchet MS", "Verdana"})
+        if (QFontDatabase::hasFamily(QString::fromLatin1(preferred)))
+            return QString::fromLatin1(preferred);
     const auto system = QFontDatabase::systemFont(QFontDatabase::GeneralFont).family();
     if (QFontDatabase::hasFamily(system))
         return system;

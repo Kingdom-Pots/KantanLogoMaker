@@ -142,7 +142,7 @@ struct ExportSize {
     auto operator<=>(const ExportSize&) const = default;
 };
 struct ExportSettings {
-    bool png{true}, ico{};
+    bool png{true}, ico{}, svg{};
     std::vector<int> pngSizes{32, 64, 128, 256, 512};
     std::vector<int> icoSizes{16, 32, 48, 256};
     std::vector<ExportSize> custom;
@@ -153,6 +153,7 @@ struct ExportSettings {
     bool selectionOnly{};
     std::string naming{"{name}_{size}"};
     std::string icoName{"{name}"};
+    std::string svgName{"{name}"};
     std::vector<NamedOutput> outputs;
     std::string preset; // name of the platform preset that filled these settings; presentation only
     std::string folder; // last used output folder; presentation metadata only

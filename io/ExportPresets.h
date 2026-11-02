@@ -11,10 +11,10 @@ struct ExportPreset {
     QString name, description;
     ExportSettings apply(const ExportSettings& current) const;
     // Fields the preset sets.
-    bool png{}, ico{};
+    bool png{}, ico{}, svg{};
     std::vector<int> pngSizes, icoSizes;
     std::vector<NamedOutput> outputs;
-    std::string naming{"{name}_{size}"}, icoName{"{name}"};
+    std::string naming{"{name}_{size}"}, icoName{"{name}"}, svgName{"{name}"};
     std::optional<bool> transparent; // iOS app icons must be opaque
 };
 const std::vector<ExportPreset>& exportPresets();

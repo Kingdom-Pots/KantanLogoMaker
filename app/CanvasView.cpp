@@ -1,4 +1,5 @@
 #include "app/CanvasView.h"
+#include "app/I18n.h"
 #include "app/Presets.h"
 #include "io/Images.h"
 #include <QContextMenuEvent>
@@ -89,9 +90,9 @@ CanvasView::CanvasView(std::shared_ptr<Editor> editor, std::shared_ptr<AppServic
 void CanvasView::setTool(Tool tool) {
     if (tool == tool_)
         return;
-    cancelGesture();
     if (penActive())
         finishPen(false);
+    cancelGesture();
     tool_ = tool;
     node_.reset();
     updateCursor();
@@ -171,22 +172,25 @@ void CanvasView::fitSelection() {
     emit viewChanged();
 }
 void CanvasView::refresh() {
-    render();
     update();
 }
 void CanvasView::resizeEvent(QResizeEvent*) {
-    render();
+    update();
 }
 CanvasView::Frame CanvasView::selectionFrame() const {
     const auto doc = editor_->preview();
     const auto& selection = editor_->selection();
     if (selection.empty())
         return {};
+    if (frameDoc_ == doc.get() && frameSelection_ == selection)
+        return frame_;
+    frameDoc_ = doc.get();
+    frameSelection_ = selection;
     const auto services = services_->render();
     if (selection.size() == 1) {
         const auto* o = doc->find(selection[0]);
         if (!o)
-            return {};
+            return frame_ = {};
         const Affine world = doc->worldMatrix(o->id);
         if (world.invertible() && o->transform.matrix().invertible()) {
             const auto area = objectArea(*doc, *o, o->transform.matrix().inverted(), .05, services);
@@ -196,11 +200,11 @@ CanvasView::Frame CanvasView::selectionFrame() const {
                                              o->as<ShapeData>()->height),
                                    .05));
             if (!b.empty())
-                return {world, b, true};
+                return frame_ = {world, b, true};
         }
     }
     const Box b = selectionBounds(*doc, selection, services);
-    return {Affine{}, b, !b.empty()};
+    return frame_ = {Affine{}, b, !b.empty()};
 }
 std::array<QPointF, 8> CanvasView::handlePoints(const Frame& f) const {
     std::array<QPointF, 8> out;
@@ -308,7 +312,7 @@ void CanvasView::beginNodeDrag(NodeRef node, int part, QPointF) {
     nodePart_ = part;
     drag_ = Drag::Node;
 }
-void CanvasView::updateNodeDrag(QPointF v, bool constrain) {
+void CanvasView::updateNodeDrag(QPointF v, Qt::KeyboardModifiers mods) {
     const auto doc = editor_->snapshot();
     const Affine world = doc->worldMatrix(nodeObject_.id);
     if (!world.invertible())
@@ -316,13 +320,23 @@ void CanvasView::updateNodeDrag(QPointF v, bool constrain) {
     Object o = nodeObject_;
     auto* path = editablePath(o);
     auto& n = path->subpaths[node_->subpath].nodes[node_->node];
-    Point p = world.inverted().map(kp(toArtboard(v)));
+    const bool constrain = (mods & Qt::ShiftModifier) != 0;
     if (nodePart_ == 0) {
+        const Point startWorld = world.map(n.anchor);
+        const Point delta = kp(toArtboard(v)) - startWorld;
+        auto settings = snap_;
+        if (mods & Qt::ControlModifier)
+            settings.enabled = false;
+        snapHint_ = snapNode(*doc, nodeObject_.id, node_->subpath, node_->node, startWorld, delta, constrain,
+                             settings, tolerance(), services_->render());
+        const Point p = world.inverted().map(startWorld + snapHint_.delta);
         const Point d = p - n.anchor;
         n.anchor = p;
         n.in = n.in + d;
         n.out = n.out + d;
     } else {
+        snapHint_ = {};
+        Point p = world.inverted().map(kp(toArtboard(v)));
         Point& moving = nodePart_ == 1 ? n.in : n.out;
         Point& other = nodePart_ == 1 ? n.out : n.in;
         if (constrain) { // Shift: snap the handle angle to 45 degree steps
@@ -340,7 +354,7 @@ void CanvasView::updateNodeDrag(QPointF v, bool constrain) {
                 other = n.anchor + dir * (keep / len);
         }
     }
-    const Box b = bounds(*path);
+    const Box b = bounds(resolvedCorners(*path));
     auto* s = o.as<ShapeData>();
     s->width = b.empty() ? 0 : b.width();
     s->height = b.empty() ? 0 : b.height();
@@ -381,6 +395,93 @@ Result CanvasView::insertNodeAt(QPointF v) {
     node_ = NodeRef{s, i + 1};
     return editor_->update("Add node", {o});
 }
+void CanvasView::setSelectedNode(std::optional<NodeRef> node) {
+    if (node_ == node)
+        return;
+    node_ = node;
+    emit changed();
+    update();
+}
+Result CanvasView::appendNode(std::optional<QPointF> artboardPos) {
+    const auto& sel = editor_->selection();
+    if (sel.size() != 1)
+        return {Status::NoChange, "Select a shape or path first"};
+    const auto id = sel.front();
+    auto doc = editor_->snapshot();
+    const auto* orig = doc->find(id);
+    if (!orig || (!orig->as<ShapeData>() && !orig->as<TextData>()))
+        return {Status::NoChange, "Select a shape or path first"};
+    if (!editablePath(*orig)) {
+        auto r =
+            editor_->replaceSubtrees("Convert to path", convertedToPath(*doc, {id}, services_->render()));
+        if (!r)
+            return r;
+        doc = editor_->snapshot();
+        orig = doc->find(id);
+    }
+    if (!orig)
+        return {Status::NoChange, {}};
+    Object o = *orig;
+    auto* path = editablePath(o);
+    if (!path)
+        return {Status::NoChange, {}};
+    if (path->subpaths.empty())
+        path->subpaths.push_back(SubPath{{}, false});
+    const std::size_t s =
+        (node_ && node_->subpath < path->subpaths.size()) ? node_->subpath : path->subpaths.size() - 1;
+    auto& sub = path->subpaths[s];
+    const Affine world = doc->worldMatrix(o.id);
+    Point pos{};
+    if (artboardPos && world.invertible()) {
+        pos = world.inverted().map(kp(*artboardPos));
+    } else if (sub.nodes.size() >= 2) {
+        const Point last = sub.nodes.back().anchor;
+        const Point first = sub.nodes.front().anchor;
+        const Point prev = sub.nodes[sub.nodes.size() - 2].anchor;
+        if (sub.closed)
+            pos = (last + first) * .5;
+        else {
+            const Point step = last - prev;
+            pos = length(step) > 1e-6 ? last + step * .5 : last + Point{24, 0};
+        }
+    } else if (sub.nodes.size() == 1) {
+        pos = sub.nodes.back().anchor + Point{24, 0};
+    }
+    sub.nodes.push_back(Node::corner(pos));
+    node_ = NodeRef{s, sub.nodes.size() - 1};
+    const Box b = bounds(resolvedCorners(*path));
+    o.as<ShapeData>()->width = b.empty() ? 0 : b.width();
+    o.as<ShapeData>()->height = b.empty() ? 0 : b.height();
+    if (tool_ != Tool::Direct) {
+        tool_ = Tool::Direct;
+        updateCursor();
+    }
+    return editor_->update("Add point", {o});
+}
+Result CanvasView::moveSelectedNode(int delta) {
+    const auto* target = directTarget();
+    if (!target || !node_ || delta == 0)
+        return {Status::NoChange, {}};
+    Object o = *editor_->snapshot()->find(target->id);
+    auto* path = editablePath(o);
+    if (!path || node_->subpath >= path->subpaths.size())
+        return {Status::NoChange, {}};
+    auto& sub = path->subpaths[node_->subpath];
+    const std::size_t count = sub.nodes.size();
+    if (count < 2 || node_->node >= count)
+        return {Status::NoChange, {}};
+    const std::ptrdiff_t cur = static_cast<std::ptrdiff_t>(node_->node);
+    const std::ptrdiff_t n = static_cast<std::ptrdiff_t>(count);
+    const std::ptrdiff_t next = ((cur + delta) % n + n) % n;
+    if (next == cur)
+        return {Status::NoChange, {}};
+    std::swap(sub.nodes[static_cast<std::size_t>(cur)], sub.nodes[static_cast<std::size_t>(next)]);
+    node_ = NodeRef{node_->subpath, static_cast<std::size_t>(next)};
+    const Box b = bounds(resolvedCorners(*path));
+    o.as<ShapeData>()->width = b.empty() ? 0 : b.width();
+    o.as<ShapeData>()->height = b.empty() ? 0 : b.height();
+    return editor_->update("Reorder point", {o});
+}
 Result CanvasView::deleteNode() {
     const auto* target = directTarget();
     if (!target || !node_)
@@ -398,7 +499,7 @@ Result CanvasView::deleteNode() {
     node_.reset();
     if (path->empty())
         return editor_->remove({o.id});
-    const Box b = bounds(*path);
+    const Box b = bounds(resolvedCorners(*path));
     o.as<ShapeData>()->width = b.width();
     o.as<ShapeData>()->height = b.height();
     return editor_->update("Delete node", {o});
@@ -420,6 +521,7 @@ Result CanvasView::toggleNodeType() {
                     next = sub.nodes[(node_->node + 1) % n].anchor;
         const Point tangent = (next - prev) * (1. / 6.);
         node.type = NodeType::Smooth;
+        node.radius = 0;
         node.in = node.anchor - tangent;
         node.out = node.anchor + tangent;
     }
@@ -489,8 +591,15 @@ void CanvasView::finishPen(bool close) {
 void CanvasView::cancelGesture() {
     if (editor_->busy()) {
         editor_->cancel();
+        if (duplicatedByDrag_)
+            editor_->undo();
+        emit changed();
+    } else if (duplicatedByDrag_) {
+        editor_->undo();
         emit changed();
     }
+    duplicatedByDrag_ = false;
+    altPending_ = {};
     drag_ = Drag::None;
     marquee_ = {};
     snapHint_ = {};
@@ -499,7 +608,8 @@ void CanvasView::cancelGesture() {
     refresh();
     updateCursor();
 }
-QColor CanvasView::sampleColor(QPointF v) const {
+QColor CanvasView::sampleColor(QPointF v) {
+    render();
     const auto doc = editor_->snapshot();
     const double dpr = cache_.devicePixelRatio();
     const QPoint px(static_cast<int>(v.x() * dpr), static_cast<int>(v.y() * dpr));
@@ -523,12 +633,40 @@ void CanvasView::pickColor(QPointF v) {
 }
 void CanvasView::updateHover(QPointF v) {
     ObjectId id;
+    QString tip;
     if (tool_ == Tool::Select || tool_ == Tool::Direct) {
         const auto doc = editor_->snapshot();
         id = hitTest(*doc, kp(toArtboard(v)), tolerance(), services_->render());
         if (id && tool_ == Tool::Select)
             id = selectableAncestor(*doc, id);
+        if (tool_ == Tool::Direct) {
+            if (const auto handle = nodeHandleAt(v)) {
+                tip =
+                    handle->second == 0
+                        ? trUi("Drag to move point (Shift locks axis) · Double-click to toggle corner/smooth")
+                        : trUi("Drag handle to adjust curve (Shift snaps angle to 45°)");
+            } else if (id) {
+                if (const auto* o = doc->find(id)) {
+                    if (editablePath(*o))
+                        tip = trUi("Click a point to edit · Alt-click segment to add point · Del removes "
+                                   "selected point");
+                    else if (o->as<ShapeData>() || o->as<TextData>())
+                        tip = trUi("Double-click to expose points to edit");
+                }
+            }
+        } else if (id) {
+            if (const auto* o = doc->find(id)) {
+                if (o->as<TextData>())
+                    tip = trUi("Double-click to edit text");
+                else if (o->as<ShapeData>())
+                    tip = trUi("Double-click to expose points to edit");
+                else if (o->kind() == ObjectKind::Group || o->kind() == ObjectKind::Clip)
+                    tip = trUi("Double-click to select inside group");
+            }
+        }
     }
+    if (tip != toolTip())
+        setToolTip(tip);
     if (id != hover_) {
         hover_ = id;
         update();
@@ -592,6 +730,8 @@ void CanvasView::mousePressEvent(QMouseEvent* e) {
         updateCursor();
         return;
     }
+    if (textEdit_)
+        finishTextEdit(true);
     if (e->button() != Qt::LeftButton || editor_->busy())
         return;
     const auto doc = editor_->snapshot();
@@ -616,6 +756,35 @@ void CanvasView::mousePressEvent(QMouseEvent* e) {
         zoomAt(zoom_ * ((e->modifiers() & Qt::AltModifier) ? 1 / 1.5 : 1.5), v);
         return;
     case Tool::Text: {
+        ObjectId targetText;
+        const ObjectId hit = hitTest(*doc, kp(pressArtboard_), tolerance(), services);
+        if (hit) {
+            const auto* o = doc->find(hit);
+            if (o && o->as<TextData>())
+                targetText = hit;
+        }
+        if (!targetText) {
+            // Also check if clicked within the bounds of any existing text object (Photoshop-like intuition)
+            for (auto it = doc->objects.rbegin(); it != doc->objects.rend(); ++it) {
+                const auto& o = **it;
+                if (!o.as<TextData>() || !doc->effectiveVisible(o.id) || doc->effectiveLocked(o.id))
+                    continue;
+                const Box b = selectionBounds(*doc, {o.id}, services);
+                const Point pt = kp(pressArtboard_);
+                const double tol = tolerance();
+                if (!b.empty() && pt.x >= b.x0 - tol && pt.x <= b.x1 + tol && pt.y >= b.y0 - tol &&
+                    pt.y <= b.y1 + tol) {
+                    targetText = o.id;
+                    break;
+                }
+            }
+        }
+        if (targetText) {
+            editor_->select({targetText});
+            emit changed();
+            editTextInline(targetText, false, false);
+            return;
+        }
         Object o;
         o.name = "Text";
         o.style = textStyle_;
@@ -627,7 +796,7 @@ void CanvasView::mousePressEvent(QMouseEvent* e) {
         report(editor_->add({o}));
         emit changed();
         if (!editor_->created().empty())
-            editTextInline(editor_->created().front(), true);
+            editTextInline(editor_->created().front(), true, true);
         return;
     }
     case Tool::Image:
@@ -645,6 +814,7 @@ void CanvasView::mousePressEvent(QMouseEvent* e) {
             return;
         }
         pen_.nodes.push_back(Node::corner(p));
+        penCursor_ = pressArtboard_;
         penDragging_ = true;
         drag_ = Drag::Pen;
         update();
@@ -653,6 +823,7 @@ void CanvasView::mousePressEvent(QMouseEvent* e) {
     case Tool::Direct: {
         if (auto handle = nodeHandleAt(v)) {
             beginNodeDrag(handle->first, handle->second, v);
+            emit changed();
             update();
             return;
         }
@@ -667,8 +838,11 @@ void CanvasView::mousePressEvent(QMouseEvent* e) {
         report(editor_->select(id ? std::vector<ObjectId>{id} : std::vector<ObjectId>{}));
         if (id) {
             const auto* o = doc->find(id);
-            if (o && !editablePath(*o) && (o->as<ShapeData>() || o->as<TextData>()))
-                emit feedback("Use Path › Convert to path to edit this object's nodes");
+            if (o && !editablePath(*o) && (o->as<ShapeData>() || o->as<TextData>())) {
+                // Automatically convert parametric shapes to editable paths when clicked with Direct select
+                // if the user double-clicks, or hint clearly on single click.
+                emit feedback("Double-click or press Ctrl+Shift+O to convert to an editable path");
+            }
         }
         emit changed();
         update();
@@ -743,7 +917,7 @@ void CanvasView::mousePressEvent(QMouseEvent* e) {
 void CanvasView::mouseMoveEvent(QMouseEvent* e) {
     const QPointF v = e->position();
     const QPointF a = toArtboard(v);
-    const auto doc = editor_->snapshot();
+    auto doc = editor_->snapshot();
     const auto services = services_->render();
     const auto mods = e->modifiers();
     if (altPending_ && (e->buttons() & Qt::LeftButton) && QLineF(v, press_).length() > 3) {
@@ -753,8 +927,9 @@ void CanvasView::mouseMoveEvent(QMouseEvent* e) {
         if (std::find(selection.begin(), selection.end(), id) == selection.end())
             selection = {id};
         if (editor_->duplicate(selection, {0, 0})) {
+            doc = editor_->snapshot();
             dragTargets_ = editor_->created();
-            moveBounds_ = selectionBounds(*editor_->snapshot(), dragTargets_, services);
+            moveBounds_ = selectionBounds(*doc, dragTargets_, services);
             duplicatedByDrag_ = true;
             if (editor_->begin("Move copy"))
                 drag_ = Drag::Move;
@@ -875,10 +1050,15 @@ void CanvasView::mouseMoveEvent(QMouseEvent* e) {
         update();
         break;
     case Drag::Node:
-        updateNodeDrag(v, mods & Qt::ShiftModifier);
+        updateNodeDrag(v, mods);
         break;
     case Drag::Pen:
-        if (penDragging_ && !pen_.nodes.empty() && QLineF(v, press_).length() > 2) {
+        if (!penDragging_) {
+            penCursor_ = a;
+            update();
+            break;
+        }
+        if (!pen_.nodes.empty() && QLineF(v, press_).length() > 2) {
             auto& n = pen_.nodes.back();
             n.out = kp(a);
             n.in = n.anchor * 2 - n.out;
@@ -1006,6 +1186,18 @@ void CanvasView::mouseDoubleClickEvent(QMouseEvent* e) {
             report(toggleNodeType());
             emit changed();
             refresh();
+            return;
+        }
+        const auto hit = hitTest(*doc, kp(a), tolerance(), services_->render());
+        if (hit) {
+            if (const auto* o = doc->find(hit);
+                o && !editablePath(*o) && (o->as<ShapeData>() || o->as<TextData>())) {
+                report(editor_->replaceSubtrees("Convert to path",
+                                                convertedToPath(*doc, {hit}, services_->render())));
+                editor_->select({hit});
+                emit changed();
+                refresh();
+            }
         }
         return;
     }
@@ -1023,6 +1215,14 @@ void CanvasView::mouseDoubleClickEvent(QMouseEvent* e) {
         editor_->select({hit});
         setTool(Tool::Direct);
         emit changed();
+        emit feedback("Editing nodes · Alt-click a segment to add a node · Del removes the selected node");
+    } else if (o->as<ShapeData>()) {
+        report(
+            editor_->replaceSubtrees("Convert to path", convertedToPath(*doc, {hit}, services_->render())));
+        editor_->select({hit});
+        setTool(Tool::Direct);
+        emit changed();
+        refresh();
         emit feedback("Editing nodes · Alt-click a segment to add a node · Del removes the selected node");
     } else {
         // Enter the group: select the leaf directly.
@@ -1058,13 +1258,14 @@ class InlineTextEdit final : public QPlainTextEdit {
     }
 };
 } // namespace
-void CanvasView::editTextInline(ObjectId id, bool selectAll) {
+void CanvasView::editTextInline(ObjectId id, bool selectAll, bool justCreated) {
     finishTextEdit(true);
     const auto doc = editor_->snapshot();
     const auto* o = doc->find(id);
     if (!o || !o->as<TextData>() || doc->effectiveLocked(id) || !editor_->begin("Edit text"))
         return;
     textObject_ = *o;
+    textCreated_ = justCreated;
     auto* edit = new InlineTextEdit(this);
     textEdit_ = edit;
     edit->setObjectName("inlineText");
@@ -1108,10 +1309,15 @@ void CanvasView::finishTextEdit(bool keep) {
     const auto text = edit->toPlainText();
     edit->hide();
     edit->deleteLater();
+    const bool created = textCreated_;
+    textCreated_ = false;
     if (keep && !text.trimmed().isEmpty())
         report(editor_->apply());
-    else
+    else {
         editor_->cancel();
+        if (created)
+            editor_->undo();
+    }
     setFocus();
     emit changed();
     refresh();
@@ -1224,6 +1430,8 @@ void CanvasView::focusOutEvent(QFocusEvent* e) {
     QWidget::focusOutEvent(e);
 }
 void CanvasView::leaveEvent(QEvent*) {
+    if (!toolTip().isEmpty())
+        setToolTip({});
     if (hover_) {
         hover_ = {};
         update();
@@ -1270,6 +1478,7 @@ QPainterPath safeZonePath(SafeZone zone, double w, double h, QPainterPath* inner
     return path;
 }
 void CanvasView::paintEvent(QPaintEvent*) {
+    render();
     QPainter p(this);
     p.fillRect(rect(), QColor(27, 30, 37));
     const auto doc = editor_->preview();
@@ -1392,8 +1601,9 @@ void CanvasView::paintEvent(QPaintEvent*) {
         if (const auto* o = directTarget()) {
             const Affine m = viewAffine() * doc->worldMatrix(o->id);
             const auto* path = editablePath(*o);
+            const Path resolved = resolvedCorners(*path);
             QPainterPath outline;
-            for (const auto& s : path->subpaths) {
+            for (const auto& s : resolved.subpaths) {
                 if (s.nodes.empty())
                     continue;
                 outline.moveTo(qp(m.map(s.nodes[0].anchor)));
@@ -1424,14 +1634,17 @@ void CanvasView::paintEvent(QPaintEvent*) {
                     p.setBrush(chosen ? Accent : QColor(Qt::white));
                     if (n.type == NodeType::Smooth)
                         p.drawEllipse(c, 4, 4);
-                    else
+                    else if (n.radius > 0) {
+                        p.drawPolygon(QPolygonF{c + QPointF(0, -4.5), c + QPointF(4.5, 0),
+                                                c + QPointF(0, 4.5), c + QPointF(-4.5, 0)});
+                    } else
                         p.drawRect(QRectF(c.x() - 3.5, c.y() - 3.5, 7, 7));
                 }
             p.setBrush(Qt::NoBrush);
         }
     }
-    // Snap guides share the same coordinate system for moves and resizes.
-    if (drag_ == Drag::Move || drag_ == Drag::Scale) {
+    // Snap guides share the same coordinate system for moves, resizes and node alignment.
+    if (drag_ == Drag::Move || drag_ == Drag::Scale || drag_ == Drag::Node) {
         p.setPen(QPen(Snap, 1));
         if (!std::isnan(snapHint_.guide.x)) {
             const double x = toView({snapHint_.guide.x, 0}).x();

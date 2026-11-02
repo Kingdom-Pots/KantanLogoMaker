@@ -133,6 +133,9 @@ void PalettePanel::report(Result r) {
 }
 void PalettePanel::refresh() {
     const auto& palette = editor_->snapshot()->palette;
+    if (shown_ == palette)
+        return;
+    shown_ = palette;
     const int current = list_->currentRow();
     list_->clear();
     for (const auto& p : palette) {

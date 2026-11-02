@@ -60,11 +60,13 @@ Object resizedLocal(const Object& object, double sx, double sy, Point a) {
     bool geometric = false;
     if (auto* s = o.as<ShapeData>()) {
         if (auto* path = std::get_if<Path>(&s->geometry)) {
+            const double radiusScale = std::sqrt(std::abs(sx * sy));
             for (auto& sub : path->subpaths) {
                 for (auto& n : sub.nodes) {
                     n.anchor = scalePath(n.anchor, sx, sy, {});
                     n.in = scalePath(n.in, sx, sy, {});
                     n.out = scalePath(n.out, sx, sy, {});
+                    n.radius *= radiusScale;
                 }
                 // A single mirror reverses winding; keep orientation consistent for even-odd and offsets.
                 if (sx * sy < 0)
@@ -304,6 +306,72 @@ SnapResult snapTranslation(const DocumentData& doc, Box moving, Point delta,
     }
     return result;
 }
+SnapResult snapNode(const DocumentData& doc, ObjectId objectId, std::size_t subpath, std::size_t node,
+                    Point startWorld, Point delta, bool constrainAxis, const SnapSettings& settings,
+                    double tolerance, const RenderServices& services) {
+    bool lockX = false, lockY = false;
+    if (constrainAxis) {
+        if (std::abs(delta.x) >= std::abs(delta.y)) {
+            delta.y = 0;
+            lockY = true;
+        } else {
+            delta.x = 0;
+            lockX = true;
+        }
+    }
+    SnapResult result{delta, {SnapKind::None, SnapKind::None}};
+    if (!settings.enabled)
+        return result;
+    auto targets = snapTargets(doc, {objectId}, settings, services);
+    if (settings.objects) {
+        for (const auto& ref : doc.objects) {
+            const auto& o = *ref;
+            if (!doc.effectiveVisible(o.id))
+                continue;
+            const auto* s = o.as<ShapeData>();
+            const auto* path = s ? std::get_if<Path>(&s->geometry) : nullptr;
+            if (!path)
+                continue;
+            const Affine world = doc.worldMatrix(o.id);
+            for (std::size_t si = 0; si < path->subpaths.size(); ++si)
+                for (std::size_t ni = 0; ni < path->subpaths[si].nodes.size(); ++ni) {
+                    if (o.id == objectId && si == subpath && ni == node)
+                        continue;
+                    const Point p = world.map(path->subpaths[si].nodes[ni].anchor);
+                    targets.x.push_back({p.x, SnapKind::Object});
+                    targets.y.push_back({p.y, SnapKind::Object});
+                }
+        }
+    }
+    const Point moved = startWorld + delta;
+    if (!lockX) {
+        if (auto x = best({moved.x}, targets.x, tolerance)) {
+            result.delta.x += x->first;
+            result.kinds[0] = x->second.second;
+            result.guide.x = x->second.first;
+        } else if (settings.pixels) {
+            result.delta.x = std::round(moved.x) - startWorld.x;
+            result.kinds[0] = SnapKind::Pixel;
+        }
+    } else if (auto x = best({startWorld.x}, targets.x, 1e-4)) {
+        result.kinds[0] = x->second.second;
+        result.guide.x = x->second.first;
+    }
+    if (!lockY) {
+        if (auto y = best({moved.y}, targets.y, tolerance)) {
+            result.delta.y += y->first;
+            result.kinds[1] = y->second.second;
+            result.guide.y = y->second.first;
+        } else if (settings.pixels) {
+            result.delta.y = std::round(moved.y) - startWorld.y;
+            result.kinds[1] = SnapKind::Pixel;
+        }
+    } else if (auto y = best({startWorld.y}, targets.y, 1e-4)) {
+        result.kinds[1] = y->second.second;
+        result.guide.y = y->second.first;
+    }
+    return result;
+}
 ResizeSnap snapResize(const DocumentData& doc, Point start, Point anchor, Point pointer, bool horizontal,
                       bool vertical, bool uniform, const std::vector<ObjectId>& exclude,
                       const SnapSettings& settings, double tolerance, const RenderServices& services,
@@ -400,7 +468,44 @@ std::vector<Object> convertedToPath(const DocumentData& doc, const std::vector<O
         if (const auto* s = o->as<ShapeData>()) {
             if (std::holds_alternative<Path>(s->geometry))
                 continue;
-            Path path = shapePath(s->geometry, s->width, s->height);
+            Path path;
+            if (const auto* r = std::get_if<RectangleParams>(&s->geometry)) {
+                const double hw = s->width / 2, hh = s->height / 2;
+                const std::array<Point, 4> corners{Point{-hw, -hh}, Point{hw, -hh}, Point{hw, hh},
+                                                   Point{-hw, hh}};
+                SubPath sub;
+                for (std::size_t i = 0; i < 4; ++i) {
+                    Node n = Node::corner(corners[i]);
+                    n.radius = std::max(0., r->linked ? r->radii[0] : r->radii[i]);
+                    n.cornerStyle = r->corner;
+                    sub.nodes.push_back(n);
+                }
+                path.subpaths.push_back(std::move(sub));
+            } else if (const auto* p = std::get_if<PolygonParams>(&s->geometry)) {
+                const int sides = std::clamp(p->sides, 3, 64);
+                SubPath sub;
+                for (int i = 0; i < sides; ++i) {
+                    const double rad = 2 * std::numbers::pi * i / sides;
+                    Node n = Node::corner({s->width / 2 * std::sin(rad), -s->height / 2 * std::cos(rad)});
+                    n.radius = std::max(0., p->cornerRadius);
+                    sub.nodes.push_back(n);
+                }
+                path.subpaths.push_back(std::move(sub));
+            } else if (const auto* st = std::get_if<StarParams>(&s->geometry)) {
+                const int pts = std::clamp(st->points, 3, 64);
+                const double inner = std::clamp(st->innerRatio, .01, 1.);
+                SubPath sub;
+                for (int i = 0; i < pts * 2; ++i) {
+                    const double k = i % 2 ? inner : 1.;
+                    const double rad = std::numbers::pi * i / pts;
+                    Node n =
+                        Node::corner({s->width / 2 * k * std::sin(rad), -s->height / 2 * k * std::cos(rad)});
+                    n.radius = std::max(0., st->cornerRadius);
+                    sub.nodes.push_back(n);
+                }
+                path.subpaths.push_back(std::move(sub));
+            } else
+                path = shapePath(s->geometry, s->width, s->height);
             c.data = ShapeData{s->width, s->height, std::move(path)};
         } else if (const auto* t = o->as<TextData>()) {
             if (!services.text)

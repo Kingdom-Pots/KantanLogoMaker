@@ -33,6 +33,7 @@ class ColorField final : public QWidget {
     void openPicker();
     void updateSwatch();
     SwatchSource swatches_;
+    std::vector<Swatch> shownSwatches_;
     Color color_{0, 0, 0, 255};
     bool mixed_{};
     QToolButton* main_{};

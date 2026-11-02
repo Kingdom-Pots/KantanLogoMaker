@@ -33,11 +33,13 @@ bool Path::empty() const {
 }
 Path transformed(const Path& path, const Affine& m) {
     Path out = path;
+    const double scale = std::sqrt(std::abs(m.determinant()));
     for (auto& s : out.subpaths)
         for (auto& n : s.nodes) {
             n.anchor = m.map(n.anchor);
             n.in = m.map(n.in);
             n.out = m.map(n.out);
+            n.radius *= scale;
         }
     // A mirroring transform keeps the same filled area; winding direction does not affect fill rules.
     return out;
@@ -99,8 +101,9 @@ Polygon flattenSubPath(const SubPath& s, double tolerance) {
 } // namespace
 Polygons flatten(const Path& path, double tolerance) {
     tolerance = std::max(tolerance, 1e-4);
+    const Path resolved = resolvedCorners(path);
     Polygons out;
-    for (const auto& s : path.subpaths) {
+    for (const auto& s : resolved.subpaths) {
         auto poly = flattenSubPath(s, tolerance);
         if (!poly.empty())
             out.push_back(std::move(poly));
@@ -109,8 +112,9 @@ Polygons flatten(const Path& path, double tolerance) {
 }
 Polygons flattenClosed(const Path& path, double tolerance) {
     tolerance = std::max(tolerance, 1e-4);
+    const Path resolved = resolvedCorners(path);
     Polygons out;
-    for (const auto& s : path.subpaths) {
+    for (const auto& s : resolved.subpaths) {
         if (!s.closed || s.nodes.size() < 2)
             continue;
         auto poly = flattenSubPath(s, tolerance);
@@ -194,7 +198,7 @@ void appendNode(SubPath& out, Node node) {
     out.nodes.push_back(node);
 }
 } // namespace
-void appendRoundedCorner(SubPath& out, Point prev, Point p, Point next, double radius) {
+void appendRoundedCorner(SubPath& out, Point prev, Point p, Point next, double radius, CornerStyle style) {
     const Point u = normalized(prev - p), v = normalized(next - p);
     const double cosine = std::clamp(dot(u, v), -1., 1.);
     const double angle = std::acos(cosine); // interior angle
@@ -203,14 +207,67 @@ void appendRoundedCorner(SubPath& out, Point prev, Point p, Point next, double r
         return;
     }
     const double half = angle / 2;
-    double dist = radius / std::tan(half);
+    double dist = style == CornerStyle::Round ? radius / std::tan(half) : radius;
     dist = std::min({dist, length(prev - p) / 2, length(next - p) / 2});
-    const double r = dist * std::tan(half);
-    const double turn = std::numbers::pi - angle;
-    const double handle = 4. / 3. * std::tan(turn / 4) * r;
     const Point t1 = p + u * dist, t2 = p + v * dist;
+    if (style == CornerStyle::Chamfer) {
+        appendNode(out, Node::corner(t1));
+        out.nodes.push_back(Node::corner(t2));
+        return;
+    }
+    const double turn = std::numbers::pi - angle;
+    if (style == CornerStyle::Inverted) {
+        const double handle = 4. / 3. * std::tan(angle / 4) * dist;
+        appendNode(out, {t1, t1, t1 + v * handle, NodeType::Corner});
+        out.nodes.push_back({t2, t2 + u * handle, t2, NodeType::Corner});
+        return;
+    }
+    const double r = dist * std::tan(half);
+    const double handle = 4. / 3. * std::tan(turn / 4) * r;
     appendNode(out, {t1, t1, t1 - u * handle, NodeType::Smooth});
     out.nodes.push_back({t2, t2 - v * handle, t2, NodeType::Smooth});
+}
+Path resolvedCorners(const Path& path) {
+    bool any = false;
+    for (const auto& s : path.subpaths)
+        for (const auto& n : s.nodes)
+            if (n.radius > 0 && n.type == NodeType::Corner)
+                any = true;
+    if (!any)
+        return path;
+    Path out;
+    out.rule = path.rule;
+    for (const auto& s : path.subpaths) {
+        const std::size_t count = s.nodes.size();
+        if (count < 2) {
+            out.subpaths.push_back(s);
+            continue;
+        }
+        SubPath sub;
+        sub.closed = s.closed;
+        for (std::size_t i = 0; i < count; ++i) {
+            const auto& n = s.nodes[i];
+            const bool endpoint = !s.closed && (i == 0 || i + 1 == count);
+            const auto& prev = s.nodes[(i + count - 1) % count];
+            const auto& next = s.nodes[(i + 1) % count];
+            const bool straightSides = !endpoint && prev.out == prev.anchor && n.in == n.anchor &&
+                                       n.out == n.anchor && next.in == next.anchor;
+            if (n.radius > 0 && n.type == NodeType::Corner && straightSides) {
+                appendRoundedCorner(sub, prev.anchor, n.anchor, next.anchor, n.radius, n.cornerStyle);
+            } else {
+                Node clean = n;
+                clean.radius = 0;
+                appendNode(sub, clean);
+            }
+        }
+        if (sub.closed && sub.nodes.size() > 1 &&
+            length(sub.nodes.back().anchor - sub.nodes.front().anchor) < 1e-9) {
+            sub.nodes.front().in = sub.nodes.back().in;
+            sub.nodes.pop_back();
+        }
+        out.subpaths.push_back(std::move(sub));
+    }
+    return out;
 }
 void appendArc(SubPath& out, Point c, double rx, double ry, double start, double sweep) {
     const int parts =

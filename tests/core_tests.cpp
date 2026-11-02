@@ -125,6 +125,9 @@ void editorContracts() {
     const auto b = e.created().at(0);
     check(e.snapshot()->objects.size() == 2 && e.canUndo(), "Objects are added with undo");
     check(e.selection() == std::vector<ObjectId>{b}, "New objects become the selection");
+    ok(e.undo());
+    check(e.selection() == std::vector<ObjectId>{a}, "Undo of add restores the previous selection");
+    ok(e.redo());
     const auto saved = e.snapshot()->state;
     e.markSaved(saved);
     check(!e.dirty(), "Saved state is clean");
@@ -147,10 +150,15 @@ void editorContracts() {
     check(e.snapshot()->find(a)->transform.position.x == 100 && !e.dirty(),
           "Undo returns to the saved identity");
     ok(e.redo());
-    // A no-op gesture creates no history.
+    // A no-op gesture creates no history, even if previewed away and back.
     const auto steps = e.undoLabel();
     ok(e.begin("Nothing"));
     check(e.apply().status == Status::NoChange && e.undoLabel() == steps, "No-op gestures add no undo entry");
+    ok(e.begin("Move back"));
+    ok(e.preview(translated(*e.snapshot(), {a}, {10, 0})));
+    ok(e.preview(translated(*e.snapshot(), {a}, {0, 0})));
+    check(e.apply().status == Status::NoChange && e.undoLabel() == steps,
+          "Gesture returning to its start adds no undo entry");
     // Locked objects refuse geometry edits but accept unlocking.
     Object locked = *e.snapshot()->find(a);
     locked.locked = true;
@@ -364,6 +372,85 @@ void paletteContracts() {
     DocumentData big;
     big.palette.resize(MaxPalette + 1);
     check(!validateDocument(big), "Palette size is limited");
+    // Single-object group and ungroup round-trips cleanly, and undo restores prior selection.
+    Editor singleGroup;
+    ok(singleGroup.add({shape(RectangleParams{}, 50, 40, {100, 100})}));
+    const auto soloId = singleGroup.snapshot()->objects.front()->id;
+    ok(singleGroup.group({soloId}, ObjectKind::Group));
+    check(singleGroup.snapshot()->objects.size() == 2, "Single object grouped");
+    const auto grpId = singleGroup.selection().front();
+    ok(singleGroup.undo());
+    check(singleGroup.selection() == std::vector<ObjectId>{soloId}, "Undo group restores solo selection");
+    ok(singleGroup.redo());
+    check(singleGroup.selection() == std::vector<ObjectId>{grpId}, "Redo group selects group");
+    ok(singleGroup.ungroup({grpId}));
+    check(singleGroup.snapshot()->objects.size() == 1 &&
+              singleGroup.selection() == std::vector<ObjectId>{soloId},
+          "Ungroup single child restores child");
+
+    // No-op gesture preview (or moving away and returning to start) does not record an undo entry.
+    const auto genBeforeNoop = singleGroup.generation();
+    ok(singleGroup.begin("Move"));
+    Object movedObj = *singleGroup.snapshot()->objects.front();
+    movedObj.transform.position.x += 25;
+    ok(singleGroup.preview({movedObj}));
+    ok(singleGroup.preview({*singleGroup.snapshot()->objects.front()}));
+    check(singleGroup.apply().status == Status::NoChange,
+          "Applying gesture returned to start reports NoChange");
+    check(singleGroup.generation() == genBeforeNoop, "No-op gesture leaves history untouched");
+    // Per-node bevel/radius on explicit paths resolves Round, Chamfer, and Inverted corners cleanly.
+    Path custom;
+    SubPath tri;
+    tri.nodes = {Node::corner({0, -100}), Node::corner({100, 100}), Node::corner({-100, 100})};
+    tri.nodes[0].radius = 20;
+    tri.nodes[0].cornerStyle = CornerStyle::Round;
+    tri.nodes[1].radius = 15;
+    tri.nodes[1].cornerStyle = CornerStyle::Chamfer;
+    tri.nodes[2].radius = 15;
+    tri.nodes[2].cornerStyle = CornerStyle::Inverted;
+    custom.subpaths.push_back(tri);
+    const Path resolved = resolvedCorners(custom);
+    check(resolved.subpaths.size() == 1 && resolved.subpaths[0].nodes.size() == 6,
+          "Three bevelled triangle corners expand into six tangent nodes");
+    const Polygons flatTri = flattenClosed(custom, .1);
+    check(!flatTri.empty() && flatTri[0].size() > 6,
+          "Resolved path corners flatten into curved/chamfered polygon");
+    // Converting a parametric rectangle with corner radius to path preserves its 4 corner anchors and radii.
+    DocumentData rectDoc;
+    Object rectObj = shape(RectangleParams{{12, 12, 12, 12}, true, CornerStyle::Chamfer}, 100, 80, {50, 50});
+    rectObj.id = {1};
+    rectDoc.objects.push_back(std::make_shared<const Object>(rectObj));
+    const auto convertedRect = convertedToPath(rectDoc, {ObjectId{1}}, {});
+    const auto* rectPath = std::get_if<Path>(&convertedRect.at(0).as<ShapeData>()->geometry);
+    check(rectPath && rectPath->subpaths.size() == 1 && rectPath->subpaths[0].nodes.size() == 4 &&
+              rectPath->subpaths[0].nodes[0].radius == 12 &&
+              rectPath->subpaths[0].nodes[0].cornerStyle == CornerStyle::Chamfer,
+          "Converted rectangle preserves 4 editable corner nodes with their bevel radius and style");
+    // Point alignment / snapping (snapNode): Shift axis lock, sibling point alignment, and toggle disable.
+    DocumentData nodeDoc;
+    Path nodePath;
+    SubPath nodeSub;
+    nodeSub.nodes = {Node::corner({0, 0}), Node::corner({120, 40}), Node::corner({60, 140})};
+    nodePath.subpaths.push_back(nodeSub);
+    Object nodeObj = shape(nodePath, 120, 140, {100, 100});
+    nodeObj.id = {1};
+    nodeDoc.objects.push_back(std::make_shared<const Object>(nodeObj));
+    SnapSettings nodeSnap; // enabled=true, objects=true
+    // Dragging node 0 ({100, 100} in world) with delta {118, 12} while holding Shift locks Y to 0 and snaps X
+    // to node 1's X ({220, 140} in world -> delta.x = 120).
+    const auto snappedAxis =
+        snapNode(nodeDoc, ObjectId{1}, 0, 0, {100, 100}, {118, 12}, true, nodeSnap, 6, {});
+    check(near(snappedAxis.delta.x, 120) && near(snappedAxis.delta.y, 0) &&
+              snappedAxis.kinds[0] == SnapKind::Object && near(snappedAxis.guide.x, 220),
+          "Shift-dragging a node locks axis and aligns to another node's coordinate");
+    // Turning off object snapping or master snap allows free-hand positioning without snapping to points.
+    SnapSettings freehand = nodeSnap;
+    freehand.enabled = false;
+    const auto unsnapped =
+        snapNode(nodeDoc, ObjectId{1}, 0, 0, {100, 100}, {118.4, 12.7}, false, freehand, 6, {});
+    check(near(unsnapped.delta.x, 118.4) && near(unsnapped.delta.y, 12.7) &&
+              unsnapped.kinds[0] == SnapKind::None,
+          "Disabling snap allows free-hand node movement");
 }
 } // namespace
 int main() {

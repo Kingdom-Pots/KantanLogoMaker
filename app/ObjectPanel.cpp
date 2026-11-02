@@ -1,5 +1,6 @@
 #include "app/ObjectPanel.h"
 #include "app/CompactControls.h"
+#include "app/I18n.h"
 #include "io/Images.h"
 #include <QDrag>
 #include <QDropEvent>
@@ -295,7 +296,7 @@ ObjectPanel::ObjectPanel(std::shared_ptr<Editor> editor, std::shared_ptr<AppServ
         const bool editable = !editor_->busy() && !editor_->selection().empty() &&
                               std::none_of(editor_->selection().begin(), editor_->selection().end(),
                                            [&](ObjectId id) { return doc->effectiveLocked(id); });
-        group->setEnabled(editable && editor_->selection().size() >= 2);
+        group->setEnabled(editable);
         duplicate->setEnabled(editable);
         remove->setEnabled(editable);
     });
@@ -469,8 +470,10 @@ void ObjectPanel::refresh() {
     std::size_t rowCount = 0;
     for (QTreeWidgetItemIterator it(tree_); *it; ++it)
         ++rowCount;
-    count_->setText(QStringLiteral("Layers: %1 · Selected: %2")
+    count_->setText(QStringLiteral("%1: %2 · %3: %4")
+                        .arg(trUi("Layers"))
                         .arg(doc->objects.size())
+                        .arg(trUi("Selection"))
                         .arg(editor_->selection().size()));
     const bool movable = !editor_->selection().empty() && search_->text().trimmed().isEmpty() &&
                          std::none_of(editor_->selection().begin(), editor_->selection().end(),

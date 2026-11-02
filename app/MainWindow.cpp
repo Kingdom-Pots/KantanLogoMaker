@@ -3,6 +3,7 @@
 #include "app/ArtboardDialog.h"
 #include "app/CompactControls.h"
 #include "app/ExportDialog.h"
+#include "app/I18n.h"
 #include "app/MockupDialog.h"
 #include "app/Presets.h"
 #include "app/PropertyControls.h"
@@ -11,6 +12,7 @@
 #include "io/Images.h"
 #include "io/ProjectIO.h"
 #include "io/Serialization.h"
+#include "io/SvgExport.h"
 #include "io/SvgImport.h"
 #include <QActionGroup>
 #include <QApplication>
@@ -72,6 +74,7 @@ MainWindow::MainWindow(std::shared_ptr<AppServices> services, QWidget* parent, A
     : QMainWindow(parent), services_(std::move(services)),
       editor_(std::make_shared<Editor>(std::move(artboard), services_->budget)) {
     setObjectName("KantanLogoMainWindow");
+    setWindowIcon(QIcon(":/icons/app.ico"));
     installAppTheme();
     PropertyWheelGuard::install();
     setAttribute(Qt::WA_DeleteOnClose, false);
@@ -90,6 +93,32 @@ MainWindow::MainWindow(std::shared_ptr<AppServices> services, QWidget* parent, A
         alignTarget_->setCurrentIndex(1);
         align(static_cast<Alignment>(alignment));
     });
+    connect(inspector_, &Inspector::convertToPathRequested, this, [this] {
+        action("convert")->trigger();
+        chooseTool(Tool::Direct);
+    });
+    connect(inspector_, &Inspector::selectNodeRequested, this, [this](NodeRef node) {
+        if (canvas_->tool() != Tool::Direct)
+            chooseTool(Tool::Direct);
+        canvas_->setSelectedNode(node);
+    });
+    connect(inspector_, &Inspector::addNodeRequested, this, [this] {
+        report(canvas_->appendNode());
+        if (canvas_->tool() == Tool::Direct) {
+            toolActions_[Tool::Direct]->setChecked(true);
+            options_->setCurrentIndex(static_cast<int>(Tool::Direct));
+        }
+        synchronize();
+    });
+    connect(inspector_, &Inspector::moveNodeRequested, this, [this](int delta) {
+        report(canvas_->moveSelectedNode(delta));
+        synchronize();
+    });
+    connect(inspector_, &Inspector::deleteNodeRequested, this, [this] {
+        report(canvas_->deleteNode());
+        synchronize();
+    });
+    connect(inspector_, &Inspector::breakNodeRequested, this, [this] { action("break")->trigger(); });
     info_ = new QLabel(this);
     statusBar()->addPermanentWidget(info_);
     connect(canvas_, &CanvasView::feedback, this, &MainWindow::status);
@@ -245,7 +274,8 @@ MainWindow::MainWindow(std::shared_ptr<AppServices> services, QWidget* parent, A
     autosaveTimer_.setInterval(60000);
     connect(&autosaveTimer_, &QTimer::timeout, this, &MainWindow::autosave);
     autosaveTimer_.start();
-    synchronize();
+    loadLanguageFromSettings();
+    applyLanguage(currentLanguageCode());
     QTimer::singleShot(0, canvas_, &CanvasView::fit);
 }
 MainWindow::~MainWindow() {
@@ -269,21 +299,32 @@ bool MainWindow::report(Result r) {
     return static_cast<bool>(r);
 }
 QString MainWindow::documentName() const {
-    return path_.isEmpty() ? QStringLiteral("Untitled logo") : QFileInfo(path_).completeBaseName();
+    return path_.isEmpty() ? trUi("Untitled logo") : QFileInfo(path_).completeBaseName();
+}
+void MainWindow::applyLanguage(const QString& code) {
+    setCurrentLanguageByCode(code);
+    for (const auto& info : supportedLanguages())
+        if (auto* a = action(QStringLiteral("lang_") + QString::fromUtf8(info.code)))
+            a->setChecked(info.lang == currentLanguage());
+    retranslateWidgetTree(this);
+    synchronize();
 }
 void MainWindow::synchronize() {
     shownGeneration_ = editor_->generation();
     canvas_->refresh();
     objects_->refresh();
+    inspector_->setSelectedNode(canvas_->selectedNode());
     inspector_->refresh();
     presets_->palette()->refresh();
     strip_->schedule();
-    setWindowTitle(documentName() + (editor_->dirty() ? "*" : "") + " — Kantan LogoMaker");
+    setWindowTitle(documentName() + (editor_->dirty() ? "*" : "") + " — " + brandAppName());
     const auto undo = editor_->undoLabel(), redo = editor_->redoLabel();
     action("undo")->setEnabled(editor_->canUndo());
-    action("undo")->setText(undo.empty() ? "Undo" : "Undo " + QString::fromStdString(undo));
+    action("undo")->setText(undo.empty() ? trUi("Undo")
+                                         : trUi("Undo") + " " + trUi(QString::fromStdString(undo)));
     action("redo")->setEnabled(editor_->canRedo());
-    action("redo")->setText(redo.empty() ? "Redo" : "Redo " + QString::fromStdString(redo));
+    action("redo")->setText(redo.empty() ? trUi("Redo")
+                                         : trUi("Redo") + " " + trUi(QString::fromStdString(redo)));
     updateSelectionActions();
     emit canvas_->viewChanged();
 }
@@ -305,7 +346,9 @@ void MainWindow::chooseTool(Tool tool) {
     canvas_->setTool(tool);
     toolActions_[tool]->setChecked(true);
     options_->setCurrentIndex(static_cast<int>(tool));
-    status(toolName(tool));
+    inspector_->setSelectedNode(canvas_->selectedNode());
+    inspector_->refresh();
+    status(trUi(toolName(tool)));
     canvas_->setFocus();
 }
 void MainWindow::buildTools() {
@@ -444,8 +487,8 @@ void MainWindow::buildOptions() {
     });
     // Direct select.
     page([&](QHBoxLayout* h) {
-        h->addWidget(hint("Drag nodes and handles · Alt-click a segment to add a node · double-click toggles "
-                          "corner/smooth"));
+        h->addWidget(hint("Drag nodes and handles · Shift locks axis and aligns to points · Alt-click a "
+                          "segment to add a node · double-click toggles corner/smooth"));
         button(h, "delete", "Delete node", [this] {
             report(canvas_->deleteNode());
             synchronize();
@@ -515,8 +558,8 @@ void MainWindow::buildDocks() {
     presetLayout->addWidget(presets_, 1);
     auto p = dock(presetBox, "Presets", "presetsDock", Qt::RightDockWidgetArea);
     auto s = dock(strip_, "Size preview", "sizeDock", Qt::BottomDockWidgetArea);
-    resizeDocks({o, i, p}, {200, 420, 220}, Qt::Vertical);
-    resizeDocks({o}, {300}, Qt::Horizontal);
+    resizeDocks({o, i, p}, {175, 450, 215}, Qt::Vertical);
+    resizeDocks({o}, {310}, Qt::Horizontal);
     s->setMaximumHeight(strip_->sizeHint().height() + 40);
     resizeDocks({s}, {strip_->sizeHint().height()}, Qt::Vertical);
     auto view = menuBar()->findChild<QMenu*>("viewMenu");
@@ -533,6 +576,7 @@ void MainWindow::buildDocks() {
     connect(objects_, &ObjectPanel::selectionChanged, this, [this] {
         canvas_->update();
         objects_->refresh();
+        inspector_->setSelectedNode(canvas_->selectedNode());
         inspector_->refresh();
         updateSelectionActions();
         emit canvas_->viewChanged();
@@ -578,10 +622,14 @@ void MainWindow::buildMenus() {
     });
     auto templates = file->addMenu("New from template");
     const auto list = starterTemplates(io::FontLibrary::fallbackFamily());
-    for (std::size_t i = 0; i < list.size(); ++i)
-        templates->addAction(list[i].name, this, [this, i] { openTemplate(static_cast<int>(i)); });
+    for (std::size_t i = 0; i < list.size(); ++i) {
+        auto* tplAct =
+            templates->addAction(list[i].name, this, [this, i] { openTemplate(static_cast<int>(i)); });
+        tplAct->setProperty("i18nSkip", true);
+    }
     add(file, "open", "Open…", QKeySequence::Open, [this] {
-        const auto p = QFileDialog::getOpenFileName(this, "Open logo", {}, "Kantan LogoMaker (*.kantanlogo)");
+        const auto p =
+            QFileDialog::getOpenFileName(this, "Open logo", {}, "Kantan Logo Maker (*.kantanlogo)");
         if (!p.isEmpty())
             openFile(p);
     });
@@ -636,6 +684,30 @@ void MainWindow::buildMenus() {
         editor_->setExportSettings(settings); // remembered in the project
         lastExportName_ = dialog.baseName();
         exportTo(dialog.folder(), dialog.baseName());
+    });
+    add(file, "exportSvg", "Export as SVG…", {}, [this] {
+        if (io_.isRunning()) {
+            status("Wait for the current file operation to finish");
+            return;
+        }
+        const auto doc = editor_->snapshot();
+        const auto folder = doc->exportSettings.folder.empty()
+                                ? QDir::homePath()
+                                : QString::fromStdString(doc->exportSettings.folder);
+        const auto path = QFileDialog::getSaveFileName(this, trUi("Export as SVG"),
+                                                       QDir(folder).filePath(documentName() + ".svg"),
+                                                       "Scalable Vector Graphics (*.svg)");
+        if (path.isEmpty())
+            return;
+        io::SvgExportOptions opt;
+        opt.selectionOnly = !editor_->selection().empty();
+        opt.transparent = doc->artboard.transparent;
+        opt.background = doc->artboard.background;
+        const auto r = io::exportSvgFile(path, *doc, opt, editor_->selection(), services_->render());
+        if (r)
+            status(QStringLiteral("Exported SVG: %1").arg(QFileInfo(path).fileName()));
+        else
+            status(QStringLiteral("SVG export failed: %1").arg(QString::fromStdString(r.message)));
     });
     add(file, "exportAgain", "Export again", QKeySequence(Qt::CTRL | Qt::Key_E), [this] {
         // Same settings, folder and name as last time; falls back to the dialog when there is no usable
@@ -901,6 +973,14 @@ void MainWindow::buildMenus() {
     add(path, "reverse", "Reverse direction", {}, [this] {
         pathOp("Reverse direction", [this](ObjectId id) { return reversedObject(*editor_->snapshot(), id); });
     });
+    add(path, "addPoint", "Add point", {}, [this] {
+        report(canvas_->appendNode());
+        if (canvas_->tool() == Tool::Direct) {
+            toolActions_[Tool::Direct]->setChecked(true);
+            options_->setCurrentIndex(static_cast<int>(Tool::Direct));
+        }
+        synchronize();
+    });
     add(path, "break", "Break at selected node", {}, [this] {
         const auto node = canvas_->selectedNode();
         if (!node) {
@@ -1083,9 +1163,23 @@ void MainWindow::buildMenus() {
         report(editor_->setArtboard(a));
         synchronize();
     });
+    auto langMenu = menuBar()->addMenu("Language");
+    langMenu->setObjectName("languageMenu");
+    auto* langGroup = new QActionGroup(langMenu);
+    for (const auto& info : supportedLanguages()) {
+        const QString code = QString::fromUtf8(info.code);
+        auto* a = langMenu->addAction(QString::fromUtf8(info.nativeName));
+        a->setObjectName(QStringLiteral("lang_") + code);
+        a->setProperty("i18nSkip", true);
+        a->setCheckable(true);
+        a->setChecked(info.lang == currentLanguage());
+        langGroup->addAction(a);
+        actions_[a->objectName()] = a;
+        connect(a, &QAction::triggered, this, [this, code] { applyLanguage(code); });
+    }
     auto help = menuBar()->addMenu("Help");
     add(help, "shortcuts", "Keyboard shortcuts", QKeySequence::HelpContents, [this] {
-        QMessageBox::information(this, "Keyboard shortcuts",
+        QMessageBox::information(this, trUi("Keyboard shortcuts"),
                                  "Tools: V select · A nodes · P pen · R shape · E ellipse · T text · I image "
                                  "· K eyedropper (or hold Alt) · "
                                  "Space pan · Z zoom\n\nArrows nudge 1 unit (Shift 10) · Shift constrains · "
@@ -1101,12 +1195,8 @@ void MainWindow::buildMenus() {
                                  "Resize: edges snap to canvas/guides. Hold Ctrl to bypass snapping; Shift "
                                  "keeps proportions; Alt scales from centre.");
     });
-    add(help, "about", "About Kantan LogoMaker", {}, [this] {
-        QMessageBox::about(
-            this, "Kantan LogoMaker",
-            "Kantan LogoMaker " + QApplication::applicationVersion() +
-                "\nA small, fast logo and icon maker.\n\nQt 6 (LGPL), Clipper2 (BSL-1.0), nanosvg (zlib), "
-                "Miniz (MIT), Fluent System Icons (MIT). See the notices folder.");
+    add(help, "about", "About Kantan Logo Maker", {}, [this] {
+        QMessageBox::about(this, brandAppName(), aboutDialogText(QApplication::applicationVersion()));
     });
 }
 void MainWindow::showContextMenu(QPoint global) {
@@ -1120,6 +1210,9 @@ void MainWindow::showContextMenu(QPoint global) {
     };
     if (sel.empty()) {
         addAction(&menu, "paste");
+        addAction(&menu, "placeImage");
+        addAction(&menu, "importSvg");
+        addAction(&menu, "exportSvg");
         addAction(&menu, "selectAll");
         menu.addSeparator();
         addAction(&menu, "addGuides");
@@ -1128,16 +1221,46 @@ void MainWindow::showContextMenu(QPoint global) {
         return;
     }
     if (first && first->as<TextData>())
-        menu.addAction("Edit text", this, [this, id = first->id] { canvas_->editTextInline(id, false); });
+        menu.addAction(trUi("Edit text"), this,
+                       [this, id = first->id] { canvas_->editTextInline(id, false); });
+    if (sel.size() == 1 && first && first->as<ShapeData>()) {
+        menu.addAction(trUi("Add point"), this, [this, global] {
+            std::optional<QPointF> at;
+            const QPoint viewPos = canvas_->mapFromGlobal(global);
+            if (canvas_->rect().contains(viewPos))
+                at = canvas_->toArtboard(QPointF(viewPos));
+            report(canvas_->appendNode(at));
+            if (canvas_->tool() == Tool::Direct) {
+                toolActions_[Tool::Direct]->setChecked(true);
+                options_->setCurrentIndex(static_cast<int>(Tool::Direct));
+            }
+            synchronize();
+        });
+        if (const auto node = canvas_->selectedNode()) {
+            menu.addAction(trUi("Move point up"), this, [this] {
+                report(canvas_->moveSelectedNode(-1));
+                synchronize();
+            });
+            menu.addAction(trUi("Move point down"), this, [this] {
+                report(canvas_->moveSelectedNode(1));
+                synchronize();
+            });
+            menu.addAction(trUi("Delete point"), this, [this] {
+                report(canvas_->deleteNode());
+                synchronize();
+            });
+        }
+        menu.addSeparator();
+    }
     addAction(&menu, "cut");
     addAction(&menu, "copy");
     addAction(&menu, "paste");
     addAction(&menu, "duplicate");
     addAction(&menu, "delete");
     menu.addSeparator();
+    addAction(&menu, "group");
     if (sel.size() > 1) {
-        addAction(&menu, "group");
-        auto* combine = menu.addMenu("Combine");
+        auto* combine = menu.addMenu(trUi("Combine"));
         for (const char* name : {"union", "subtract", "intersect", "exclude"})
             addAction(combine, name);
         addAction(&menu, "clip");
@@ -1148,7 +1271,7 @@ void MainWindow::showContextMenu(QPoint global) {
         addAction(&menu, "flatten");
     if (first && (first->as<ShapeData>() || first->as<TextData>()))
         addAction(&menu, "convert");
-    auto* arrangeMenu = menu.addMenu("Arrange");
+    auto* arrangeMenu = menu.addMenu(trUi("Arrange"));
     for (const char* name : {"front", "forward", "backward", "back"})
         addAction(arrangeMenu, name);
     arrangeMenu->addSeparator();
@@ -1158,6 +1281,7 @@ void MainWindow::showContextMenu(QPoint global) {
     addAction(&menu, "copyStyle");
     addAction(&menu, "pasteStyle");
     addAction(&menu, "savePreset");
+    addAction(&menu, "exportSvg");
     menu.addSeparator();
     addAction(&menu, "lock");
     addAction(&menu, "hide");
@@ -1522,7 +1646,7 @@ void MainWindow::save(bool as) {
     if (as || file.isEmpty()) {
         file = QFileDialog::getSaveFileName(this, "Save logo",
                                             path_.isEmpty() ? documentName() + ".kantanlogo" : path_,
-                                            "Kantan LogoMaker (*.kantanlogo)");
+                                            "Kantan Logo Maker (*.kantanlogo)");
         if (file.isEmpty())
             return;
         if (!file.endsWith(".kantanlogo", Qt::CaseInsensitive))
@@ -1607,7 +1731,7 @@ void MainWindow::dropEvent(QDropEvent* e) {
         const auto ext = QFileInfo(file).suffix().toLower();
         const QPointF at = canvas_->toArtboard(QPointF(canvas_->mapFrom(this, e->position().toPoint())));
         if (ext == "kantanlogo")
-            load(file);
+            openFile(file);
         else if (ext == "svg")
             importSvg(file);
         else if (ext == "ttf" || ext == "otf" || ext == "ttc")

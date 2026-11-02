@@ -188,6 +188,11 @@ with a wide artboard (the Steam capsule template does). Pick *Custom* to go back
 **File › Export again** (Ctrl+E) repeats the last export with the same settings, folder and name, without the dialog.
 If there is no saved folder yet it opens the dialog instead.
 
+**Headless CLI (`kantan.cmd` / `kantanlogo-cli.exe --cli`).** Automate builds, inspections and asset exports without
+opening a window: `kantan presets`, `kantan new --template 2 --text "Brand" -o logo.kantanlogo`,
+`kantan inspect logo.kantanlogo`, `kantan render logo.kantanlogo -o preview.png --size 256x256`, and
+`kantan export logo.kantanlogo -o dist/icons --preset "Windows app / GameMaker icon"`.
+
 ## Saving
 
 Projects are `.kantanlogo` files and include embedded images and fonts. Unsaved work is autosaved every minute; if

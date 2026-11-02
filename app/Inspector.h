@@ -1,15 +1,18 @@
 #pragma once
+#include "app/CanvasView.h"
 #include "app/ColorField.h"
 #include "app/Services.h"
 #include "editing/Editor.h"
 #include <QComboBox>
 #include <QDoubleSpinBox>
 #include <QFormLayout>
+#include <QListWidget>
 #include <QPlainTextEdit>
 #include <QScrollArea>
 #include <QTimer>
 #include <QToolButton>
 #include <functional>
+#include <optional>
 
 namespace kantan::app {
 // Properties of the selection. Style edits apply to every selected object; parameter sections show for a
@@ -20,6 +23,10 @@ class Inspector final : public QScrollArea {
     Inspector(std::shared_ptr<Editor> editor, std::shared_ptr<AppServices> services,
               QWidget* parent = nullptr);
     void refresh();
+    void setSelectedNode(std::optional<NodeRef> node);
+    std::optional<NodeRef> selectedNode() const {
+        return selectedNode_;
+    }
     void focusText();
     QPlainTextEdit* textEdit() const {
         return text_;
@@ -28,6 +35,12 @@ class Inspector final : public QScrollArea {
     void documentChanged();
     void feedback(QString);
     void alignCanvas(int alignment);
+    void convertToPathRequested();
+    void selectNodeRequested(NodeRef node);
+    void addNodeRequested();
+    void moveNodeRequested(int delta);
+    void deleteNodeRequested();
+    void breakNodeRequested();
 
   protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
@@ -59,9 +72,11 @@ class Inspector final : public QScrollArea {
     // Live (scrub/picker) edits: one gesture -> one undo step, finished by finishPreview().
     void previewEach(const QString& undo, const std::function<void(Object&)>& change, const Applies& applies);
     void finishPreview();
+    void flushTextEdit();
     std::vector<const Object*> targets(const Applies& applies) const;
     std::vector<Swatch> swatches() const;
     void buildTransform();
+    void buildNode();
     void buildShape();
     void buildText();
     void buildImage();
@@ -81,6 +96,10 @@ class Inspector final : public QScrollArea {
     bool loading_{};
     bool wheelGesture_{};
     QTimer wheelTimer_;
+    QTimer textTimer_;
+    ObjectId textTarget_{};
+    std::optional<NodeRef> selectedNode_;
+    QListWidget* pointsList_{};
     QPlainTextEdit* text_{};
     QComboBox* font_{};
     QDoubleSpinBox *x_{}, *y_{}, *w_{}, *h_{}, *angle_{};

@@ -4,7 +4,6 @@
 #include <variant>
 
 namespace kantan {
-enum class CornerStyle { Round, Chamfer, Inverted };
 struct RectangleParams {
     std::array<double, 4> radii{}; // top-left, top-right, bottom-right, bottom-left
     bool linked{true};

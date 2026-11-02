@@ -161,9 +161,15 @@ QJsonObject pathToJson(const Path& path) {
     QJsonArray subpaths;
     for (const auto& s : path.subpaths) {
         QJsonArray nodes;
-        for (const auto& n : s.nodes)
-            nodes.append(QJsonArray{n.anchor.x, n.anchor.y, n.in.x, n.in.y, n.out.x, n.out.y,
-                                    n.type == NodeType::Smooth ? 1 : 0});
+        for (const auto& n : s.nodes) {
+            if (n.radius > 0 || n.cornerStyle != CornerStyle::Round)
+                nodes.append(QJsonArray{n.anchor.x, n.anchor.y, n.in.x, n.in.y, n.out.x, n.out.y,
+                                        n.type == NodeType::Smooth ? 1 : 0, n.radius,
+                                        static_cast<int>(n.cornerStyle)});
+            else
+                nodes.append(QJsonArray{n.anchor.x, n.anchor.y, n.in.x, n.in.y, n.out.x, n.out.y,
+                                        n.type == NodeType::Smooth ? 1 : 0});
+        }
         subpaths.append(QJsonObject{{"closed", s.closed}, {"nodes", nodes}});
     }
     return {{"rule", static_cast<int>(path.rule)}, {"subpaths", subpaths}};
@@ -180,17 +186,23 @@ Path pathFromJson(const QJsonObject& o) {
         s.closed = boolean(so, "closed");
         for (const auto nv : array(so, "nodes", 100000)) {
             const auto a = nv.toArray();
-            if (!nv.isArray() || a.size() != 7)
+            if (!nv.isArray() || (a.size() != 7 && a.size() != 9))
                 fail("Invalid path node");
-            double v[7];
-            for (qsizetype i = 0; i < 7; ++i) {
+            double v[9]{};
+            for (qsizetype i = 0; i < a.size(); ++i) {
                 if (!a[i].isDouble() || !std::isfinite(a[i].toDouble()) ||
                     std::abs(a[i].toDouble()) > CoordinateLimit)
                     fail("Path node out of range");
                 v[i] = a[i].toDouble();
             }
-            s.nodes.push_back(
-                {{v[0], v[1]}, {v[2], v[3]}, {v[4], v[5]}, v[6] != 0 ? NodeType::Smooth : NodeType::Corner});
+            if (v[7] < 0 || v[8] < 0 || v[8] > 2 || v[8] != std::floor(v[8]))
+                fail("Path node corner out of range");
+            s.nodes.push_back({{v[0], v[1]},
+                               {v[2], v[3]},
+                               {v[4], v[5]},
+                               v[6] != 0 ? NodeType::Smooth : NodeType::Corner,
+                               v[7],
+                               static_cast<CornerStyle>(static_cast<int>(v[8]))});
             if (++total > 200000)
                 fail("Path has too many nodes");
         }
@@ -528,6 +540,7 @@ QJsonObject exportToJson(const ExportSettings& s) {
             QJsonObject{{"width", o.width}, {"height", o.height}, {"path", QString::fromStdString(o.path)}});
     return {{"png", s.png},
             {"ico", s.ico},
+            {"svg", s.svg},
             {"pngSizes", png},
             {"icoSizes", ico},
             {"custom", custom},
@@ -538,6 +551,7 @@ QJsonObject exportToJson(const ExportSettings& s) {
             {"selectionOnly", s.selectionOnly},
             {"naming", QString::fromStdString(s.naming)},
             {"icoName", QString::fromStdString(s.icoName)},
+            {"svgName", QString::fromStdString(s.svgName)},
             {"outputs", outputs},
             {"preset", QString::fromStdString(s.preset)},
             {"folder", QString::fromStdString(s.folder)}};
@@ -546,6 +560,9 @@ ExportSettings exportFromJson(const QJsonObject& o) {
     ExportSettings s;
     s.png = boolean(o, "png");
     s.ico = boolean(o, "ico");
+    s.svg = o.contains("svg") ? boolean(o, "svg") : false;
+    if (o.contains("svgName"))
+        s.svgName = string(o, "svgName", 128).toStdString();
     const auto sizes = [](const QJsonArray& a, int max) {
         std::vector<int> out;
         for (const auto v : a) {

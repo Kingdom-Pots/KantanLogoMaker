@@ -2,6 +2,7 @@
 #include "editing/Transforms.h"
 #include "io/IcoWriter.h"
 #include "io/Images.h"
+#include "io/SvgExport.h"
 #include <QDir>
 #include <QFileInfo>
 #include <QRegularExpression>
@@ -43,8 +44,8 @@ QString expandPath(const std::string& pattern, const QString& baseName, ExportSi
 }
 ExportPlan planExport(const ExportSettings& s, const QString& folder, const QString& baseName) {
     ExportPlan plan;
-    if (!s.png && !s.ico && s.outputs.empty())
-        return {{Status::InvalidData, "Choose PNG, ICO or both"}, {}};
+    if (!s.png && !s.ico && !s.svg && s.outputs.empty())
+        return {{Status::InvalidData, "Choose PNG, ICO, SVG or a preset"}, {}};
     if (folder.isEmpty() || !QDir(folder).exists())
         return {{Status::InvalidData, "Choose an existing output folder"}, {}};
     std::set<QString> used;
@@ -68,7 +69,7 @@ ExportPlan planExport(const ExportSettings& s, const QString& folder, const QStr
             const auto name = expandName(s.naming, baseName, size);
             if (name.isEmpty())
                 return {{Status::InvalidData, "The file name pattern produces an invalid file name"}, {}};
-            if (!add({QDir(folder).filePath(name + ".png"), false, {size}}))
+            if (!add({QDir(folder).filePath(name + ".png"), false, false, {size}}))
                 return {
                     {Status::InvalidData, "The file name pattern must include {size} to tell sizes apart"},
                     {}};
@@ -81,7 +82,7 @@ ExportPlan planExport(const ExportSettings& s, const QString& folder, const QStr
         const auto relative = expandPath(named.path, baseName, size);
         if (relative.isEmpty())
             return {{Status::InvalidData, "A preset file name is invalid"}, {}};
-        if (!add({QDir(folder).filePath(relative + ".png"), false, {size}}))
+        if (!add({QDir(folder).filePath(relative + ".png"), false, false, {size}}))
             return {{Status::InvalidData, "Two outputs would share a file name"}, {}};
     }
     if (s.ico) {
@@ -99,7 +100,14 @@ ExportPlan planExport(const ExportSettings& s, const QString& folder, const QStr
         const auto stem = expandName(s.icoName.empty() ? "{name}" : s.icoName, baseName, sizes.back());
         if (stem.isEmpty())
             return {{Status::InvalidData, "The document name is not a valid file name"}, {}};
-        if (!add({QDir(folder).filePath(stem + ".ico"), true, sizes}))
+        if (!add({QDir(folder).filePath(stem + ".ico"), true, false, sizes}))
+            return {{Status::InvalidData, "Two outputs would share a file name"}, {}};
+    }
+    if (s.svg) {
+        const auto stem = expandName(s.svgName.empty() ? "{name}" : s.svgName, baseName, {512, 512});
+        if (stem.isEmpty())
+            return {{Status::InvalidData, "The SVG file name pattern produces an invalid file name"}, {}};
+        if (!add({QDir(folder).filePath(stem + ".svg"), false, true, {}}))
             return {{Status::InvalidData, "Two outputs would share a file name"}, {}};
     }
     if (plan.files.empty())
@@ -130,7 +138,13 @@ std::vector<ExportOutcome> runExport(const DocumentData& doc, const ExportPlan& 
     for (const auto& file : plan.files) {
         try {
             QByteArray bytes;
-            if (file.ico) {
+            if (file.svg) {
+                SvgExportOptions opt;
+                opt.selectionOnly = s.selectionOnly;
+                opt.transparent = s.transparent;
+                opt.background = s.background;
+                bytes = exportSvg(doc, opt, selection, services);
+            } else if (file.ico) {
                 std::vector<Image> images;
                 for (const auto size : file.sizes)
                     images.push_back(renderExport(doc, size, s, selection, services, budget));

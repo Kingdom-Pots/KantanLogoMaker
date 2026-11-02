@@ -25,5 +25,6 @@ class PalettePanel final : public QWidget {
     void report(Result r);
     std::shared_ptr<Editor> editor_;
     QListWidget* list_{};
+    std::vector<PaletteColor> shown_;
 };
 } // namespace kantan::app

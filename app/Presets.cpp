@@ -138,7 +138,7 @@ Object shapeObject(const char* name, ShapeGeometry g, double w, double h, Point 
     return o;
 }
 Object textObject(const char* name, const char* text, const QString& family, double size, Point at,
-                  Style style, double arc = 0, double tracking = 0) {
+                  Style style, double arc = 0, double tracking = 40, int weight = 700, bool allCaps = true) {
     Object o;
     o.name = name;
     o.transform.position = at;
@@ -147,175 +147,301 @@ Object textObject(const char* name, const char* text, const QString& family, dou
     t.text = text;
     t.font.family = family.toStdString();
     t.size = size;
-    t.weight = 800;
+    t.weight = weight;
     t.arc = arc;
     t.tracking = tracking;
-    t.allCaps = true;
+    t.allCaps = allCaps;
     o.data = t;
     return o;
+}
+Path polygonPath(std::initializer_list<Point> pts, double cornerRadius = 0,
+                 CornerStyle cornerStyle = CornerStyle::Round) {
+    Path p;
+    SubPath s;
+    for (const auto& pt : pts) {
+        Node n = Node::corner(pt);
+        n.radius = cornerRadius;
+        n.cornerStyle = cornerStyle;
+        s.nodes.push_back(n);
+    }
+    p.subpaths.push_back(std::move(s));
+    return p;
+}
+Object pathObject(const char* name, Path p, Point at, Style style) {
+    const Box b = bounds(resolvedCorners(p));
+    return shapeObject(name, std::move(p), b.empty() ? 0 : b.width(), b.empty() ? 0 : b.height(), at,
+                       std::move(style));
 }
 } // namespace
 std::vector<StarterTemplate> starterTemplates(const QString& family) {
     std::vector<StarterTemplate> out;
     {
-        Builder b;
-        Style ring = defaultShapeStyle();
-        ring.fill = solid({28, 52, 92, 255});
-        ring.outlines = {outline(6, {242, 200, 90, 255})};
-        b.add(shapeObject("Badge", simple(SimpleKind::Badge), 440, 440, {256, 256}, ring));
-        Style inner;
-        inner.fill = solid({242, 200, 90, 255});
-        b.add(shapeObject("Inner circle", EllipseParams{}, 300, 300, {256, 256}, inner));
-        Style text;
-        text.fill = solid({28, 52, 92, 255});
-        b.add(textObject("Name", "Kantan", family, 64, {256, 256}, text));
-        Style arcText;
-        arcText.fill = solid({242, 200, 90, 255});
-        b.add(textObject("Arc text", "Est. 2026", family, 36, {256, 108}, arcText, .55, 80));
-        out.push_back({"Round badge", std::move(b.doc)});
-    }
-    {
-        Builder b;
-        Style shield;
-        shield.fill = linear({214, 54, 60, 255}, {140, 20, 30, 255});
-        shield.outlines = {outline(8, {255, 255, 255, 255}), outline(4, {30, 30, 40, 255})};
-        b.add(shapeObject("Shield", simple(SimpleKind::Shield), 340, 410, {256, 256}, shield));
-        Style text;
-        text.fill = solid({255, 255, 255, 255});
-        text.effects.dropShadow = {true, 120, 4, 2, 0, {0, 0, 0, 255}, .4};
-        b.add(textObject("Initials", "KS", family, 150, {256, 236}, text));
-        out.push_back({"Shield + initials", std::move(b.doc)});
-    }
-    {
+        // 1. Bastion crest: clean two-tone geometric fortress shield with bold chevron mark.
         Builder b;
         Style tile;
-        tile.fill = linear({90, 120, 255, 255}, {150, 70, 230, 255}, 135);
-        b.add(shapeObject("Icon tile", RectangleParams{{112, 112, 112, 112}}, 512, 512, {256, 256}, tile));
-        Style mark;
-        mark.fill = solid({255, 255, 255, 255});
-        mark.effects.dropShadow = {true, 120, 8, 12, 0, {20, 0, 60, 255}, .35};
-        b.add(shapeObject("Mark", StarParams{4, .38, 10}, 260, 260, {256, 256}, mark));
-        out.push_back({"App icon squircle", std::move(b.doc)});
+        tile.fill = solid({24, 34, 48, 255});
+        b.add(shapeObject("Plaque", RectangleParams{{88, 88, 88, 88}}, 440, 440, {256, 256}, tile));
+        Style crest;
+        crest.fill = solid({244, 246, 250, 255});
+        b.add(pathObject("Bastion outer",
+                         polygonPath({{0, -116}, {104, -44}, {82, 82}, {0, 120}, {-82, 82}, {-104, -44}}, 10),
+                         {256, 210}, crest));
+        Style inner;
+        inner.fill = solid({24, 34, 48, 255});
+        b.add(pathObject("Bastion cutout",
+                         polygonPath({{0, -68}, {60, -24}, {46, 52}, {0, 22}, {-46, 52}, {-60, -24}}, 4),
+                         {256, 212}, inner));
+        Style text;
+        text.fill = solid({244, 246, 250, 255});
+        b.add(textObject("Name", "BASTION", family, 48, {256, 404}, text, 0, 140, 700));
+        b.doc.palette = {{"Obsidian", {24, 34, 48, 255}}, {"Ivory", {244, 246, 250, 255}}};
+        out.push_back({"Bastion", std::move(b.doc)});
     }
     {
+        // 2. Tower mark: monochrome architectural rook silhouette on a clean rounded plaque.
+        Builder b;
+        Style badge;
+        badge.fill = solid({30, 41, 59, 255});
+        b.add(shapeObject("Plaque", RectangleParams{{88, 88, 88, 88}}, 440, 440, {256, 256}, badge));
+        Style stone;
+        stone.fill = solid({244, 241, 234, 255});
+        b.add(pathObject("Tower crown",
+                         polygonPath({{-76, -126},
+                                      {-40, -126},
+                                      {-40, -96},
+                                      {-18, -96},
+                                      {-18, -126},
+                                      {18, -126},
+                                      {18, -96},
+                                      {40, -96},
+                                      {40, -126},
+                                      {76, -126},
+                                      {76, -68},
+                                      {56, -48},
+                                      {72, 92},
+                                      {-72, 92},
+                                      {-56, -48},
+                                      {-76, -68}},
+                                     3),
+                         {256, 212}, stone));
+        Style cutout;
+        cutout.fill = solid({30, 41, 59, 255});
+        b.add(shapeObject("Gate", RectangleParams{{22, 22, 0, 0}, false}, 44, 76, {256, 268}, cutout));
+        Style text;
+        text.fill = solid({244, 241, 234, 255});
+        b.add(textObject("Name", "CITADEL", family, 48, {256, 404}, text, 0, 140, 700));
+        b.doc.palette = {{"Slate", {30, 41, 59, 255}}, {"Stone", {244, 241, 234, 255}}};
+        out.push_back({"Tower", std::move(b.doc)});
+    }
+    {
+        // 3. Dairy & creamery: clean milk bottle silhouette with negative-space drop.
+        Builder b;
+        Style tile;
+        tile.fill = solid({27, 77, 114, 255});
+        b.add(shapeObject("Tile", RectangleParams{{88, 88, 88, 88}}, 440, 440, {256, 256}, tile));
+        Style cream;
+        cream.fill = solid({247, 245, 240, 255});
+        b.add(pathObject("Bottle",
+                         polygonPath({{-32, -122},
+                                      {32, -122},
+                                      {36, -76},
+                                      {74, -24},
+                                      {74, 114},
+                                      {-74, 114},
+                                      {-74, -24},
+                                      {-36, -76}},
+                                     18),
+                         {256, 228}, cream));
+        b.add(shapeObject("Bottle rim", RectangleParams{{9, 9, 9, 9}}, 86, 18, {256, 96}, cream));
+        Style drop;
+        drop.fill = solid({27, 77, 114, 255});
+        SubPath dropSub;
+        dropSub.nodes = {
+            Node::corner({0, -44}),
+            {{32, 12}, {18, -14}, {32, 30}, NodeType::Smooth},
+            {{0, 42}, {18, 42}, {-18, 42}, NodeType::Smooth},
+            {{-32, 12}, {-32, 30}, {-18, -14}, NodeType::Smooth},
+        };
+        Path dropPath;
+        dropPath.subpaths.push_back(std::move(dropSub));
+        b.add(pathObject("Drop", std::move(dropPath), {256, 244}, drop));
+        Style text;
+        text.fill = solid({247, 245, 240, 255});
+        b.add(textObject("Brand", "DAIRY CO", family, 46, {256, 406}, text, 0, 120, 700));
+        b.doc.palette = {{"Deep Blue", {27, 77, 114, 255}}, {"Cream", {247, 245, 240, 255}}};
+        out.push_back({"Dairy", std::move(b.doc)});
+    }
+    {
+        // 4. Fresh fruits / orchard: minimalist geometric citrus mark on deep botanical green.
+        Builder b;
+        Style bg;
+        bg.fill = solid({29, 71, 52, 255});
+        b.add(shapeObject("Tile", RectangleParams{{88, 88, 88, 88}}, 440, 440, {256, 256}, bg));
+        Style fruit;
+        fruit.fill = solid({238, 123, 68, 255});
+        b.add(shapeObject("Fruit", EllipseParams{}, 184, 184, {256, 238}, fruit));
+        Style leaf;
+        leaf.fill = solid({246, 243, 234, 255});
+        SubPath leafSub;
+        leafSub.nodes = {
+            Node::corner({-28, 16}),
+            {{0, -14}, {-20, -6}, {12, -20}, NodeType::Smooth},
+            Node::corner({34, -18}),
+            {{6, 12}, {26, 4}, {-6, 18}, NodeType::Smooth},
+        };
+        Path leafPath;
+        leafPath.subpaths.push_back(std::move(leafSub));
+        b.add(pathObject("Leaf", std::move(leafPath), {274, 122}, leaf));
+        Style text;
+        text.fill = solid({246, 243, 234, 255});
+        b.add(textObject("Brand", "ORCHARD", family, 48, {256, 404}, text, 0, 130, 700));
+        b.doc.palette = {{"Forest", {29, 71, 52, 255}},
+                         {"Tangerine", {238, 123, 68, 255}},
+                         {"Cream", {246, 243, 234, 255}}};
+        out.push_back({"Fruits", std::move(b.doc)});
+    }
+    {
+        // 5. Books & publishing: clean open book pages with central spine gap.
+        Builder b;
+        Style crest;
+        crest.fill = solid({28, 39, 54, 255});
+        b.add(shapeObject("Emblem", RectangleParams{{88, 88, 88, 88}}, 440, 440, {256, 256}, crest));
+        Style page;
+        page.fill = solid({245, 242, 235, 255});
+        b.add(pathObject("Left page", polygonPath({{-108, -72}, {-12, -52}, {-12, 76}, {-108, 56}}, 8),
+                         {256, 214}, page));
+        b.add(pathObject("Right page", polygonPath({{12, -52}, {108, -72}, {108, 56}, {12, 76}}, 8),
+                         {256, 214}, page));
+        Style text;
+        text.fill = solid({245, 242, 235, 255});
+        b.add(textObject("Brand", "ATELIER", family, 48, {256, 402}, text, 0, 140, 700));
+        b.doc.palette = {{"Ink Navy", {28, 39, 54, 255}}, {"Paper", {245, 242, 235, 255}}};
+        out.push_back({"Books", std::move(b.doc)});
+    }
+    {
+        // 6. Coffee & roastery: clean geometric cup and steam mark.
+        Builder b;
+        Style bg;
+        bg.fill = solid({56, 38, 30, 255});
+        b.add(shapeObject("Plaque", PolygonParams{8, 24}, 440, 440, {256, 256}, bg));
+        Style cup;
+        cup.fill = solid({242, 233, 220, 255});
+        b.add(pathObject("Cup", polygonPath({{-82, -48}, {82, -48}, {58, 72}, {-58, 72}}, 18), {244, 242},
+                         cup));
+        Style handle;
+        handle.fill = {FillKind::None, {}};
+        handle.outlines = {outline(16, {242, 233, 220, 255}, OutlinePosition::Center)};
+        b.add(shapeObject("Handle", RectangleParams{{24, 24, 24, 24}}, 56, 68, {326, 232}, handle));
+        Style saucer;
+        saucer.fill = solid({214, 152, 92, 255});
+        b.add(shapeObject("Saucer", RectangleParams{{8, 8, 8, 8}}, 190, 16, {256, 332}, saucer));
+        b.add(shapeObject("Steam left", RectangleParams{{6, 6, 6, 6}}, 12, 40, {226, 148}, saucer));
+        b.add(shapeObject("Steam right", RectangleParams{{6, 6, 6, 6}}, 12, 52, {262, 138}, saucer));
+        Style text;
+        text.fill = solid({242, 233, 220, 255});
+        b.add(textObject("Brand", "ROASTERY", family, 46, {256, 402}, text, 0, 110, 700));
+        b.doc.palette = {
+            {"Espresso", {56, 38, 30, 255}}, {"Caramel", {214, 152, 92, 255}}, {"Oat", {242, 233, 220, 255}}};
+        out.push_back({"Coffee", std::move(b.doc)});
+    }
+    {
+        // 7. Bakery & grain: warm artisan wheat ear and diamond stamp.
+        Builder b;
+        Style stamp;
+        stamp.fill = solid({194, 109, 58, 255});
+        b.add(shapeObject("Stamp", RectangleParams{{56, 56, 56, 56}}, 430, 430, {256, 256}, stamp));
+        Style wheat;
+        wheat.fill = solid({248, 239, 222, 255});
+        b.add(shapeObject("Stem", RectangleParams{{5, 5, 5, 5}}, 10, 210, {256, 226}, wheat));
+        for (int i = 0; i < 3; ++i) {
+            const double y = 148.0 + i * 52.0;
+            b.add(pathObject("Grain left", polygonPath({{-12, 12}, {-54, -8}, {-44, -36}, {-8, -16}}, 10),
+                             {256, y}, wheat));
+            b.add(pathObject("Grain right", polygonPath({{12, 12}, {54, -8}, {44, -36}, {8, -16}}, 10),
+                             {256, y}, wheat));
+        }
+        b.add(pathObject("Grain tip", polygonPath({{0, -48}, {18, -16}, {0, 12}, {-18, -16}}, 10), {256, 102},
+                         wheat));
+        Style text;
+        text.fill = solid({248, 239, 222, 255});
+        b.add(textObject("Brand", "MILL & HEARTH", family, 40, {256, 404}, text, 0, 90, 700));
+        b.doc.palette = {{"Terracotta Crust", {194, 109, 58, 255}}, {"Flour", {248, 239, 222, 255}}};
+        out.push_back({"Bakery", std::move(b.doc)});
+    }
+    {
+        // 8. Cloud & SaaS app icon: crisp solid squircle with geometric lightning/prism mark.
+        Builder b;
+        Style tile;
+        tile.fill = solid({23, 37, 84, 255});
+        b.add(shapeObject("App tile", RectangleParams{{108, 108, 108, 108}}, 460, 460, {256, 256}, tile));
+        Style accent;
+        accent.fill = solid({56, 189, 248, 255});
+        b.add(pathObject("Upper wing", polygonPath({{-90, 18}, {24, -110}, {24, -22}, {96, -22}}, 10),
+                         {246, 236}, accent));
+        Style primary;
+        primary.fill = solid({248, 250, 252, 255});
+        b.add(pathObject("Lower wing", polygonPath({{90, -18}, {-24, 110}, {-24, 22}, {-96, 22}}, 10),
+                         {266, 276}, primary));
+        b.doc.palette = {
+            {"Midnight", {23, 37, 84, 255}}, {"Cyan", {56, 189, 248, 255}}, {"Ice", {248, 250, 252, 255}}};
+        out.push_back({"Tech app icon", std::move(b.doc)});
+    }
+    {
+        // 9. Modern wordmark: horizontal studio lockup with geometric hexagon monogram.
         Builder b;
         b.doc.artboard.width = 1024;
         b.doc.artboard.height = 384;
-        Style dot;
-        dot.fill = solid({255, 120, 60, 255});
-        b.add(shapeObject("Symbol", EllipseParams{}, 180, 180, {170, 192}, dot));
-        Style text;
-        text.fill = solid({30, 34, 44, 255});
-        auto word = textObject("Wordmark", "Wordmark", family, 140, {610, 192}, text);
-        word.as<TextData>()->allCaps = false;
-        b.add(std::move(word));
-        out.push_back({"Wordmark", std::move(b.doc)});
-    }
-    {
-        Builder b;
-        Style ring;
-        ring.fill = solid({20, 24, 32, 255});
-        b.add(shapeObject("Ring", RingParams{.16, 0, 360}, 460, 460, {256, 256}, ring));
-        Style star;
-        star.fill = linear({255, 214, 90, 255}, {230, 140, 30, 255});
-        star.effects.bevel.enabled = true;
-        star.effects.bevel.size = 10;
-        b.add(shapeObject("Star", StarParams{5, .45, 4}, 300, 300, {256, 262}, star));
-        out.push_back({"Star emblem", std::move(b.doc)});
-    }
-    {
-        Builder b;
-        Style burst;
-        burst.fill = solid({255, 214, 0, 255});
-        burst.outlines = {outline(6, {30, 30, 30, 255})};
-        b.add(shapeObject("Burst", simple(SimpleKind::Burst), 470, 470, {256, 256}, burst));
-        Style text;
-        text.fill = solid({30, 30, 30, 255});
-        b.add(textObject("Label", "New!", family, 120, {256, 256}, text));
-        out.push_back({"Burst label", std::move(b.doc)});
-    }
-    {
-        Builder b;
+        Style card;
+        card.fill = solid({247, 245, 240, 255});
+        b.add(shapeObject("Card", RectangleParams{{48, 48, 48, 48}}, 960, 320, {512, 192}, card));
         Style hex;
-        hex.fill = linear({40, 44, 60, 255}, {16, 18, 26, 255});
-        hex.outlines = {outline(10, {0, 210, 255, 255}), outline(4, {10, 12, 18, 255})};
-        b.add(shapeObject("Crest", PolygonParams{6, 18}, 440, 460, {256, 256}, hex));
-        Style star;
-        star.fill = linear({120, 240, 255, 255}, {0, 150, 220, 255});
-        star.effects.outerGlow = {true, 12, .1, {0, 210, 255, 255}, .6};
-        b.add(shapeObject("Star", StarParams{5, .45, 3}, 150, 150, {256, 170}, star));
+        hex.fill = solid({24, 34, 48, 255});
+        b.add(shapeObject("Hexagon", PolygonParams{6, 18}, 196, 196, {184, 192}, hex));
+        Style chevron;
+        chevron.fill = solid({45, 164, 132, 255});
+        b.add(pathObject("Mark",
+                         polygonPath({{-44, 18}, {0, -44}, {44, 18}, {22, 40}, {0, -6}, {-22, 40}}, 4),
+                         {184, 192}, chevron));
         Style text;
-        text.fill = solid({255, 255, 255, 255});
-        text.outlines = {outline(4, {10, 12, 18, 255})};
-        b.add(textObject("Team name", "Team", family, 96, {256, 320}, text, 0, 40));
+        text.fill = solid({24, 34, 48, 255});
+        b.add(textObject("Wordmark", "VERDANT", family, 112, {610, 192}, text, 0, 90, 800));
         b.doc.palette = {
-            {"Night", {16, 18, 26, 255}}, {"Cyan", {0, 210, 255, 255}}, {"White", {255, 255, 255, 255}}};
-        out.push_back({"Esports crest", std::move(b.doc)});
+            {"Ivory", {247, 245, 240, 255}}, {"Charcoal", {24, 34, 48, 255}}, {"Mint", {45, 164, 132, 255}}};
+        out.push_back({"Studio wordmark", std::move(b.doc)});
     }
     {
-        Builder b;
-        Style ring;
-        ring.fill = solid({246, 241, 230, 255});
-        ring.outlines = {outline(6, {30, 64, 60, 255}, OutlinePosition::Inside)};
-        b.add(shapeObject("Disc", EllipseParams{}, 440, 440, {256, 256}, ring));
-        Style thin;
-        thin.fill = solid({30, 64, 60, 255});
-        b.add(shapeObject("Inner line", RingParams{.012, 0, 360}, 380, 380, {256, 256}, thin));
-        Style text;
-        text.fill = solid({30, 64, 60, 255});
-        auto letters = textObject("Monogram", "AK", family, 170, {256, 262}, text, 0, -20);
-        letters.as<TextData>()->weight = 400;
-        b.add(std::move(letters));
-        b.doc.palette = {{"Cream", {246, 241, 230, 255}}, {"Forest", {30, 64, 60, 255}}};
-        out.push_back({"Monogram", std::move(b.doc)});
-    }
-    {
-        Builder b;
-        b.doc.artboard.background = {32, 18, 54, 255};
-        b.doc.artboard.transparent = false;
-        Style sun;
-        sun.fill = linear({255, 214, 90, 255}, {255, 70, 140, 255}, 90);
-        b.add(shapeObject("Sun", EllipseParams{}, 340, 340, {256, 230}, sun));
-        Style stripe;
-        stripe.fill = solid({32, 18, 54, 255});
-        for (int i = 0; i < 4; ++i)
-            b.add(shapeObject("Stripe", RectangleParams{}, 360, 6.0 + i * 5, {256, 260.0 + i * 34}, stripe));
-        Style text;
-        text.fill = solid({90, 230, 255, 255});
-        text.effects.outerGlow = {true, 10, .1, {90, 230, 255, 255}, .7};
-        b.add(textObject("Title", "Retro", family, 92, {256, 440}, text, 0, 30));
-        b.doc.palette = {{"Night", {32, 18, 54, 255}},
-                         {"Gold", {255, 214, 90, 255}},
-                         {"Pink", {255, 70, 140, 255}},
-                         {"Cyan", {90, 230, 255, 255}}};
-        out.push_back({"Retro sunset", std::move(b.doc)});
-    }
-    {
-        // Wide store art: opens with the Steam export preset already chosen.
+        // 10. Wide store banner: clean solid architectural framing with Steam export preset.
         Builder b;
         b.doc.artboard.width = 920;
         b.doc.artboard.height = 430;
         b.doc.artboard.transparent = false;
-        b.doc.artboard.background = {18, 26, 40, 255};
-        Style glow;
-        glow.fill = linear({44, 96, 170, 255}, {14, 20, 34, 255}, 90);
-        b.add(shapeObject("Backdrop", RectangleParams{}, 920, 430, {460, 215}, glow));
+        b.doc.artboard.background = {20, 26, 36, 255};
+        Style frame;
+        frame.fill = solid({28, 37, 50, 255});
+        frame.outlines = {outline(4, {218, 165, 74, 255}, OutlinePosition::Inside)};
+        b.add(shapeObject("Frame", RectangleParams{{20, 20, 20, 20}, true, CornerStyle::Chamfer}, 860, 370,
+                          {460, 215}, frame));
+        Style emblem;
+        emblem.fill = solid({218, 165, 74, 255});
+        b.add(pathObject("Crest", polygonPath({{0, -44}, {42, -12}, {26, 40}, {-26, 40}, {-42, -12}}, 6),
+                         {460, 108}, emblem));
         Style title;
-        title.fill = linear({255, 255, 255, 255}, {170, 210, 255, 255});
-        title.effects.dropShadow = {true, 90, 6, 10, 0, {0, 0, 0, 255}, .55};
-        b.add(textObject("Game title", "Game Title", family, 120, {460, 200}, title, 0, 10));
+        title.fill = solid({244, 246, 250, 255});
+        b.add(textObject("Title", "IRONHOLD", family, 106, {460, 232}, title, 0, 110, 800));
         Style tag;
-        tag.fill = solid({255, 190, 70, 255});
-        b.add(textObject("Tagline", "Coming soon", family, 36, {460, 300}, tag, 0, 120));
-        b.doc.palette = {
-            {"Deep", {18, 26, 40, 255}}, {"Blue", {40, 90, 160, 255}}, {"Amber", {255, 190, 70, 255}}};
+        tag.fill = solid({218, 165, 74, 255});
+        b.add(textObject("Subtitle", "TACTICAL STRATEGY", family, 30, {460, 326}, tag, 0, 180, 600));
+        b.doc.palette = {{"Obsidian", {20, 26, 36, 255}},
+                         {"Slate", {28, 37, 50, 255}},
+                         {"Gold", {218, 165, 74, 255}},
+                         {"Ivory", {244, 246, 250, 255}}};
         for (const auto& p : io::exportPresets())
             if (p.name.startsWith("Steam"))
                 b.doc.exportSettings = p.apply(b.doc.exportSettings);
-        b.doc.exportSettings.fit = ExportFit::Cover;
+        b.doc.exportSettings.fit = ExportFit::Contain;
         b.doc.exportSettings.transparent = false;
         b.doc.exportSettings.background = b.doc.artboard.background;
-        out.push_back({"Steam capsule", std::move(b.doc)});
+        out.push_back({"Store banner", std::move(b.doc)});
     }
     return out;
 }

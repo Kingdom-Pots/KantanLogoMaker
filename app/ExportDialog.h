@@ -37,7 +37,7 @@ class ExportDialog final : public QDialog {
     QLabel* presetInfo_{};
     std::vector<ObjectId> selection_;
     std::shared_ptr<AppServices> services_;
-    QCheckBox *png_{}, *ico_{}, *transparent_{}, *selectionOnly_{};
+    QCheckBox *png_{}, *ico_{}, *svg_{}, *transparent_{}, *selectionOnly_{};
     std::map<int, QCheckBox*> pngSizes_, icoSizes_;
     QListWidget* custom_{};
     QDoubleSpinBox* padding_{};

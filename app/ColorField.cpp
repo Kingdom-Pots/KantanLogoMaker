@@ -112,19 +112,31 @@ void ColorField::updateSwatch() {
     hex_->setPlaceholderText(mixed_ ? "mixed" : "RRGGBB");
 }
 void ColorField::refreshSwatches() {
+    std::vector<Swatch> list = swatches_ ? swatches_() : std::vector<Swatch>{};
+    for (const auto c : recentColors())
+        if (std::none_of(list.begin(), list.end(), [&](const Swatch& s) { return s.color == c; }))
+            list.push_back({c, "Recent"});
+    if (list.size() > 12)
+        list.resize(12);
+    const auto sameSwatches = [](const std::vector<Swatch>& a, const std::vector<Swatch>& b) {
+        if (a.size() != b.size())
+            return false;
+        for (std::size_t i = 0; i < a.size(); ++i)
+            if (!(a[i].color == b[i].color) || a[i].name != b[i].name)
+                return false;
+        return true;
+    };
+    if (sameSwatches(list, shownSwatches_) && row_->layout()->count() > 0)
+        return;
+    shownSwatches_ = list;
     auto* layout = static_cast<QHBoxLayout*>(row_->layout());
     while (auto* item = layout->takeAt(0)) {
         delete item->widget();
         delete item;
     }
-    std::vector<Swatch> list = swatches_ ? swatches_() : std::vector<Swatch>{};
-    for (const auto c : recentColors())
-        if (std::none_of(list.begin(), list.end(), [&](const Swatch& s) { return s.color == c; }))
-            list.push_back({c, "Recent"});
     int shown = 0;
     for (const auto& s : list) {
-        if (++shown > 12)
-            break;
+        ++shown;
         auto b = new QToolButton(row_);
         b->setFixedSize(16, 16);
         b->setStyleSheet(swatchStyle(s.color));

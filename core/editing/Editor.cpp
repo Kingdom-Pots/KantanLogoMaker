@@ -111,11 +111,11 @@ Result Editor::replace(Snapshot doc, bool saved) {
     return {};
 }
 Result Editor::publish(Snapshot before, std::shared_ptr<DocumentData> after, std::string label,
-                       bool structural) {
+                       bool structural, std::optional<std::vector<ObjectId>> selectionBeforeEdit) {
     if (auto r = validateDocument(*after); !r)
         return r;
     after->state = nextState_++;
-    auto selectionBefore = selection_;
+    auto selectionBefore = selectionBeforeEdit ? std::move(*selectionBeforeEdit) : selection_;
     std::erase_if(selection_, [&](ObjectId id) { return !after->find(id); });
     history_.resize(cursor_);
     history_.push_back({label, std::move(before), after, std::move(selectionBefore), selection_});
@@ -130,18 +130,24 @@ Result Editor::commit(std::string label, bool structural, const std::function<Re
     if (busy())
         return {Status::Stale, "Finish the current edit first"};
     created_.clear();
+    // Edits may change the selection (e.g. select what they created); undo must restore the one before.
+    auto selectionBefore = selection_;
     auto copy = std::make_shared<DocumentData>(*committed_);
     Result r;
     try {
         r = edit(*copy);
     } catch (const std::exception& e) {
+        selection_ = std::move(selectionBefore);
+        created_.clear();
         return {Status::ResourceLimit, e.what()};
     }
     if (!r || r.status == Status::NoChange) {
+        selection_ = std::move(selectionBefore);
         created_.clear();
         return r;
     }
-    if (auto p = publish(committed_, std::move(copy), std::move(label), structural); !p) {
+    if (auto p = publish(committed_, std::move(copy), std::move(label), structural, selectionBefore); !p) {
+        selection_ = std::move(selectionBefore);
         created_.clear();
         return p;
     }
@@ -568,7 +574,8 @@ Result Editor::preview(std::vector<Object> replacements) {
         auto r = applyReplacements(*copy, replacements, true);
         if (!r)
             return r;
-        working_->document = std::move(copy);
+        // A gesture that returns to its start keeps the base, so apply() records no history entry.
+        working_->document = r.status == Status::NoChange ? working_->base : Snapshot(std::move(copy));
     } catch (const std::exception& e) {
         return {Status::ResourceLimit, e.what()};
     }

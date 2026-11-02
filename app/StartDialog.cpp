@@ -1,4 +1,5 @@
 #include "app/StartDialog.h"
+#include "app/I18n.h"
 #include "app/Presets.h"
 #include "app/RecentFiles.h"
 #include "io/ExportJob.h"
@@ -54,7 +55,7 @@ void StartDialog::setShowAtStartup(bool show) {
 }
 StartDialog::StartDialog(std::shared_ptr<AppServices> services, QWidget* parent) : QDialog(parent) {
     setObjectName("startDialog");
-    setWindowTitle("Kantan LogoMaker");
+    setWindowTitle(brandAppName());
     resize(900, 560);
     auto root = new QVBoxLayout(this);
     auto columns = new QHBoxLayout;
@@ -174,6 +175,7 @@ StartDialog::StartDialog(std::shared_ptr<AppServices> services, QWidget* parent)
     // Single click is enough in the icon grid and lists; Enter works too.
     for (auto* view : {sizes_, templates_, recent_})
         connect(view, &QListWidget::itemClicked, view, &QListWidget::itemActivated);
+    retranslateWidgetTree(this);
 }
 void StartDialog::finish(Choice choice) {
     choice_ = std::move(choice);

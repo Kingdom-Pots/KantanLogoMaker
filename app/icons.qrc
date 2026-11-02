@@ -155,4 +155,12 @@
     <file alias="zoom.png">assets/icons/zoom.png</file>
     <file alias="zoom@2x.png">assets/icons/zoom@2x.png</file>
     <file alias="zoom@3x.png">assets/icons/zoom@3x.png</file>
+    <file alias="app.ico">assets/app.ico</file>
+    <file alias="app.png">assets/app.png</file>
+    <file alias="app_256.png">assets/app_256.png</file>
+    <file alias="app_128.png">assets/app_128.png</file>
+    <file alias="app_64.png">assets/app_64.png</file>
+    <file alias="app_48.png">assets/app_48.png</file>
+    <file alias="app_32.png">assets/app_32.png</file>
+    <file alias="app_16.png">assets/app_16.png</file>
 </qresource></RCC>

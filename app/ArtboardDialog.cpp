@@ -1,4 +1,5 @@
 #include "app/ArtboardDialog.h"
+#include "app/I18n.h"
 #include <QColorDialog>
 #include <QDialogButtonBox>
 #include <QFormLayout>
@@ -8,7 +9,7 @@
 namespace kantan::app {
 ArtboardDialog::ArtboardDialog(const Artboard& current, QWidget* parent)
     : QDialog(parent), initial_(current), background_(current.background) {
-    setWindowTitle("Artboard");
+    setWindowTitle(trUi("Artboard"));
     auto form = new QFormLayout(this);
     width_ = new QSpinBox;
     height_ = new QSpinBox;
@@ -51,6 +52,7 @@ ArtboardDialog::ArtboardDialog(const Artboard& current, QWidget* parent)
     form->addRow(buttons);
     connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
+    retranslateWidgetTree(this);
 }
 Artboard ArtboardDialog::artboard() const {
     Artboard a = initial_;

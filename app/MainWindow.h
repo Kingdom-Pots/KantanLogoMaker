@@ -61,6 +61,7 @@ class MainWindow final : public QMainWindow {
     void openFile(const QString& path); // reuses this window if it is an untouched new document
     void showStart();
     void applyStart(const StartDialog::Choice& choice);
+    void applyLanguage(const QString& code);
     bool untouched() const;
     bool waitForIO(int milliseconds = 10000);
     void demo();

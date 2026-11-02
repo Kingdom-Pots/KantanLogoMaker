@@ -293,6 +293,7 @@ Result validateShape(const ShapeGeometry& geometry, double w, double h) {
                 for (const auto& s : g.subpaths)
                     for (const auto& n : s.nodes)
                         if (!finite(n.anchor) || !finite(n.in) || !finite(n.out) ||
+                            !std::isfinite(n.radius) || n.radius < 0 || n.radius > CoordinateLimit ||
                             std::abs(n.anchor.x) > CoordinateLimit || std::abs(n.anchor.y) > CoordinateLimit)
                             return {Status::InvalidData, "Path coordinates are out of range"};
             }

@@ -5,12 +5,14 @@ ExportSettings ExportPreset::apply(const ExportSettings& current) const {
     ExportSettings s = current;
     s.png = png;
     s.ico = ico;
+    s.svg = svg;
     s.pngSizes = pngSizes;
     s.icoSizes = icoSizes;
     s.custom.clear();
     s.outputs = outputs;
     s.naming = naming;
     s.icoName = icoName;
+    s.svgName = svgName;
     s.preset = name.toStdString();
     if (transparent)
         s.transparent = *transparent;
@@ -73,6 +75,14 @@ const std::vector<ExportPreset>& exportPresets() {
         {
             ExportPreset p{"Social avatars", "Square profile pictures for Discord, X, YouTube and similar"};
             p.outputs = {{400, 400, "social/avatar_400"}, {800, 800, "social/avatar_800"}};
+            out.push_back(p);
+        }
+        {
+            ExportPreset p{"Scalable vector logo (SVG)",
+                           "Resolution-independent vector graphic for web and print"};
+            p.svg = true;
+            p.png = false;
+            p.ico = false;
             out.push_back(p);
         }
         return out;

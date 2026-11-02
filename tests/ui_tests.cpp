@@ -1,4 +1,5 @@
 #include "app/ExportDialog.h"
+#include "app/I18n.h"
 #include "app/MainWindow.h"
 #include "app/MockupDialog.h"
 #include "app/PropertyControls.h"
@@ -56,13 +57,18 @@ class UITests : public QObject {
     }
     static void drag(QWidget* w, QPoint from, QPoint to, Qt::KeyboardModifiers mods = {}) {
         QTest::mousePress(w, Qt::LeftButton, mods, from);
-        for (int i = 1; i <= 6; ++i)
-            QTest::mouseMove(w, from + (to - from) * i / 6);
+        for (int i = 1; i <= 6; ++i) {
+            const QPoint pt = from + (to - from) * i / 6;
+            QMouseEvent move(QEvent::MouseMove, pt, w->mapToGlobal(pt), Qt::NoButton, Qt::LeftButton, mods);
+            QApplication::sendEvent(w, &move);
+        }
         QTest::mouseRelease(w, Qt::LeftButton, mods, to);
     }
 
   private slots:
     void initTestCase() {
+        Q_INIT_RESOURCE(icons);
+        Q_INIT_RESOURCE(presets);
         const int font =
             QFontDatabase::addApplicationFont(QString(KANTAN_FIXTURE_DIR) + "/KantanTestSans.ttf");
         QVERIFY(font >= 0);
@@ -819,8 +825,20 @@ class UITests : public QObject {
     void templatesStartScreenAndRecent() {
         const auto list = app::starterTemplates(io::FontLibrary::fallbackFamily());
         QVERIFY(list.size() >= 10);
-        for (const auto& t : list)
+        QStringList names;
+        for (const auto& t : list) {
+            names.push_back(t.name);
             QVERIFY2(validateDocument(t.document), qPrintable(t.name));
+            for (const auto& obj : t.document.objects) {
+                QVERIFY2(obj->style.fill.kind != FillKind::Linear && obj->style.fill.kind != FillKind::Radial,
+                         qPrintable(t.name));
+                QVERIFY2(!obj->style.effects.bevel.enabled && !obj->style.effects.dropShadow.enabled &&
+                             !obj->style.effects.outerGlow.enabled,
+                         qPrintable(t.name));
+            }
+        }
+        for (const auto* expected : {"Bastion", "Tower", "Dairy", "Fruits", "Books"})
+            QVERIFY2(names.contains(expected), expected);
         app::StartDialog start(services_);
         auto* templates = start.findChild<QListWidget*>("startTemplates");
         QCOMPARE(templates->count(), static_cast<int>(list.size()));
@@ -867,6 +885,340 @@ class UITests : public QObject {
         auto* font = w->inspector()->findChild<QComboBox*>("fontFamily");
         QVERIFY(font && font->isEditable());
         QCOMPARE(font->completer()->filterMode(), Qt::MatchContains);
+        // Pressing Escape on newly placed text removes the placeholder object cleanly.
+        const auto countBefore = w->editor()->snapshot()->objects.size();
+        w->canvas()->setTool(app::Tool::Text);
+        QTest::mouseClick(w->canvas(), Qt::LeftButton, {}, at(w->canvas(), 100, 100));
+        w->canvas()->finishTextEdit(false);
+        QCOMPARE(w->editor()->snapshot()->objects.size(), countBefore);
+        // Switching away from Pen commits an open path of 2+ nodes instead of discarding it.
+        w->canvas()->setTool(app::Tool::Pen);
+        QTest::mouseClick(w->canvas(), Qt::LeftButton, {}, at(w->canvas(), 40, 40));
+        QTest::mouseClick(w->canvas(), Qt::LeftButton, {}, at(w->canvas(), 140, 40));
+        w->canvas()->setTool(app::Tool::Select);
+        QCOMPARE(w->editor()->snapshot()->objects.size(), countBefore + 1);
+    }
+    void inspectorEdgeCases() {
+        auto w = window();
+        auto editor = w->editor();
+        auto* inspector = w->inspector();
+        // 1. Switching Fill Type from None (with empty stops) to Linear gradient initializes stops safely.
+        Object shapeObj;
+        shapeObj.transform.position = {120, 120};
+        shapeObj.data = ShapeData{80, 80, RectangleParams{}};
+        shapeObj.style.fill.kind = FillKind::None;
+        shapeObj.style.fill.stops.clear();
+        QVERIFY(editor->add({shapeObj}));
+        inspector->refresh();
+        QComboBox* fillType = nullptr;
+        for (auto* box : inspector->findChildren<QComboBox*>())
+            if (box->count() == 4 && box->itemText(2) == "Linear gradient")
+                fillType = box;
+        QVERIFY(fillType);
+        fillType->setCurrentIndex(2);
+        emit fillType->activated(2);
+        const auto& updatedShape = *editor->snapshot()->objects.front();
+        QCOMPARE(updatedShape.style.fill.kind, FillKind::Linear);
+        QVERIFY(updatedShape.style.fill.stops.size() >= 2);
+        // 2. Typing in Inspector text box and immediately switching selection flushes the edit to the
+        // original text object and does not overwrite the newly selected text object.
+        Object t1, t2;
+        t1.transform.position = {100, 200};
+        t1.data = TextData{"First", {"Arial", ""}, 32};
+        t2.transform.position = {300, 200};
+        t2.data = TextData{"Second", {"Arial", ""}, 32};
+        QVERIFY(editor->add({t1, t2}));
+        const auto id1 = editor->snapshot()->objects[1]->id;
+        const auto id2 = editor->snapshot()->objects[2]->id;
+        editor->select({id1});
+        inspector->refresh();
+        inspector->textEdit()->setPlainText("First updated");
+        // Immediately switch selection to t2 before the 350ms debounce timer expires.
+        editor->select({id2});
+        inspector->refresh();
+        QCOMPARE(QString::fromStdString(editor->snapshot()->find(id1)->as<TextData>()->text),
+                 QString("First updated"));
+        QCOMPARE(QString::fromStdString(editor->snapshot()->find(id2)->as<TextData>()->text),
+                 QString("Second"));
+        // 3. Alt-drag duplicate cancelled with Escape leaves the object count unchanged.
+        const auto beforeAltCancel = editor->snapshot()->objects.size();
+        editor->select({id1});
+        auto* canvas = w->canvas();
+        canvas->setTool(app::Tool::Select);
+        const QPoint p0 = at(canvas, 100, 200);
+        const QPoint p1 = at(canvas, 150, 240);
+        QTest::mousePress(canvas, Qt::LeftButton, Qt::AltModifier, p0);
+        QMouseEvent move(QEvent::MouseMove, p1, canvas->mapToGlobal(p1), Qt::NoButton, Qt::LeftButton,
+                         Qt::AltModifier);
+        QApplication::sendEvent(canvas, &move);
+        QTest::keyClick(canvas, Qt::Key_Escape);
+        QTest::mouseRelease(canvas, Qt::LeftButton, Qt::NoModifier, p1);
+        QCOMPARE(editor->snapshot()->objects.size(), beforeAltCancel);
+    }
+    void customPathPointBevelAndInspector() {
+        auto w = window();
+        auto editor = w->editor();
+        auto* canvas = w->canvas();
+        auto* inspector = w->inspector();
+        // 1. Draw a custom closed triangle with the Pen tool.
+        canvas->setTool(app::Tool::Pen);
+        QTest::mouseClick(canvas, Qt::LeftButton, {}, at(canvas, 100, 100));
+        QTest::mouseClick(canvas, Qt::LeftButton, {}, at(canvas, 300, 100));
+        QTest::mouseClick(canvas, Qt::LeftButton, {}, at(canvas, 200, 280));
+        QTest::mouseClick(canvas, Qt::LeftButton, {}, at(canvas, 100, 100)); // close path
+        QCOMPARE(editor->snapshot()->objects.size(), std::size_t(1));
+        const auto id = editor->snapshot()->objects[0]->id;
+        // 2. Switch to Direct select tool and click the first point (100, 100).
+        canvas->setTool(app::Tool::Direct);
+        editor->select({id});
+        QTest::mouseClick(canvas, Qt::LeftButton, {}, at(canvas, 100, 100));
+        QVERIFY(canvas->selectedNode().has_value());
+        QCOMPARE(canvas->selectedNode()->node, std::size_t(0));
+        // 3. Verify the Inspector "Point" section appears and lets us adjust the point's Bevel / radius and
+        // style.
+        QCOMPARE(inspector->selectedNode(), canvas->selectedNode());
+        QDoubleSpinBox* bevelSpin = nullptr;
+        for (auto* spin : inspector->findChildren<QDoubleSpinBox*>())
+            if (spin->accessibleName() == "Bevel / radius" && spin->isVisibleTo(inspector))
+                bevelSpin = spin;
+        QVERIFY(bevelSpin);
+        bevelSpin->setValue(24.0);
+        const auto* pathAfterBevel =
+            std::get_if<Path>(&editor->snapshot()->find(id)->as<ShapeData>()->geometry);
+        QVERIFY(pathAfterBevel);
+        QCOMPARE(pathAfterBevel->subpaths[0].nodes[0].radius, 24.0);
+        QCOMPARE(pathAfterBevel->subpaths[0].nodes[1].radius, 0.0);
+        // 4. Verify the Shape section "Edit points (Convert to path)" button converts a preset shape and
+        // preserves its editable corner points.
+        Object polyObj;
+        polyObj.transform.position = {256, 256};
+        polyObj.data = ShapeData{160, 160, PolygonParams{5, 10.0}};
+        QVERIFY(editor->add({polyObj}));
+        const auto polyId = editor->created().front();
+        canvas->setTool(app::Tool::Select);
+        editor->select({polyId});
+        inspector->refresh();
+        auto* convertBtn = inspector->findChild<QToolButton*>("convertToPathButton");
+        QVERIFY(convertBtn && convertBtn->isVisibleTo(inspector));
+        QTest::mouseClick(convertBtn, Qt::LeftButton);
+        QCOMPARE(canvas->tool(), app::Tool::Direct);
+        const auto* polyPath =
+            std::get_if<Path>(&editor->snapshot()->find(polyId)->as<ShapeData>()->geometry);
+        QVERIFY(polyPath && polyPath->subpaths.size() == 1);
+        QCOMPARE(polyPath->subpaths[0].nodes.size(), std::size_t(5));
+        QCOMPARE(polyPath->subpaths[0].nodes[0].radius, 10.0);
+        // 5. Hovering over a shape in Select tool shows a tooltip letting the user know they can double-click
+        // to expose points to edit, and double-clicking converts and switches to Direct select.
+        Object rectObj;
+        rectObj.transform.position = {120, 380};
+        rectObj.data = ShapeData{80, 60, RectangleParams{}};
+        QVERIFY(editor->add({rectObj}));
+        const auto rectId = editor->created().front();
+        canvas->setTool(app::Tool::Select);
+        const QPoint hoverPt = at(canvas, 120, 380);
+        QMouseEvent hoverMove(QEvent::MouseMove, hoverPt, canvas->mapToGlobal(hoverPt), Qt::NoButton,
+                              Qt::NoButton, Qt::NoModifier);
+        QApplication::sendEvent(canvas, &hoverMove);
+        QVERIFY(canvas->toolTip().contains("Double-click", Qt::CaseInsensitive));
+        QTest::mouseDClick(canvas, Qt::LeftButton, {}, hoverPt);
+        QCOMPARE(canvas->tool(), app::Tool::Direct);
+        const auto* rectPath =
+            std::get_if<Path>(&editor->snapshot()->find(rectId)->as<ShapeData>()->geometry);
+        QVERIFY(rectPath && rectPath->subpaths.size() == 1 && rectPath->subpaths[0].nodes.size() == 4);
+        // 6. Dragging a point with Shift locks the movement axis and snaps to align with another point;
+        // turning off snapping via the regular Snap settings allows free-hand movement.
+        const Affine rectWorld = editor->snapshot()->worldMatrix(rectId);
+        const Point p0 = rectWorld.map(rectPath->subpaths[0].nodes[0].anchor); // (80, 350)
+        const Point p2 = rectWorld.map(rectPath->subpaths[0].nodes[2].anchor); // (160, 410)
+        // Drag node 0 horizontally with Shift toward p2.x - 2 (158) and slight vertical drift (+9):
+        // Shift locks Y to 350, and point alignment snaps X to 160 (matching node 2's X).
+        drag(canvas, at(canvas, p0.x, p0.y), at(canvas, p2.x - 2, p0.y + 9), Qt::ShiftModifier);
+        const auto* alignedPath =
+            std::get_if<Path>(&editor->snapshot()->find(rectId)->as<ShapeData>()->geometry);
+        const Point alignedP0 =
+            editor->snapshot()->worldMatrix(rectId).map(alignedPath->subpaths[0].nodes[0].anchor);
+        QVERIFY(std::abs(alignedP0.x - p2.x) < 1e-4);
+        QVERIFY(std::abs(alignedP0.y - p0.y) < 1e-4);
+        // Toggle off regular snapping and drag node 0 to a non-snapped position.
+        auto snapOff = canvas->snapSettings();
+        snapOff.enabled = false;
+        canvas->setSnapSettings(snapOff);
+        drag(canvas, at(canvas, alignedP0.x, alignedP0.y), at(canvas, p2.x - 2.3, p0.y + 11.4));
+        const auto* freePath =
+            std::get_if<Path>(&editor->snapshot()->find(rectId)->as<ShapeData>()->geometry);
+        const Point freeP0 =
+            editor->snapshot()->worldMatrix(rectId).map(freePath->subpaths[0].nodes[0].anchor);
+        QVERIFY(std::abs(freeP0.x - (p2.x - 2.3)) < 1.5);
+        QVERIFY(std::abs(freeP0.y - (p0.y + 11.4)) < 1.5);
+        // 7. Adding a new point (via Path/context menu or Inspector) appends it as the last point of the
+        // list, and the point list in the Inspector allows selecting and rearranging points.
+        editor->select({rectId});
+        QVERIFY(w->action("addPoint"));
+        w->action("addPoint")->trigger();
+        const auto* pathWith5 =
+            std::get_if<Path>(&editor->snapshot()->find(rectId)->as<ShapeData>()->geometry);
+        QVERIFY(pathWith5 && pathWith5->subpaths.size() == 1);
+        QCOMPARE(pathWith5->subpaths[0].nodes.size(), std::size_t(5));
+        QCOMPARE(canvas->selectedNode(), (std::optional<app::NodeRef>{{0, 4}}));
+        auto* pointsList = inspector->findChild<QListWidget*>("pointsList");
+        QVERIFY(pointsList && pointsList->isVisibleTo(inspector));
+        QCOMPARE(pointsList->count(), 5);
+        QCOMPARE(pointsList->currentRow(), 4);
+        // Move the newly added last point (#5, index 4) up in the list to index 3.
+        const Point addedAnchor = pathWith5->subpaths[0].nodes[4].anchor;
+        auto* moveUpBtn = inspector->findChild<QToolButton*>("pointMoveUpButton");
+        QVERIFY(moveUpBtn && moveUpBtn->isEnabled());
+        moveUpBtn->click();
+        const auto* reorderedPath =
+            std::get_if<Path>(&editor->snapshot()->find(rectId)->as<ShapeData>()->geometry);
+        QVERIFY(reorderedPath);
+        QCOMPARE(canvas->selectedNode(), (std::optional<app::NodeRef>{{0, 3}}));
+        QCOMPARE(reorderedPath->subpaths[0].nodes[3].anchor, addedAnchor);
+    }
+    void regularImageLayerImportAndMove() {
+        auto w = window();
+        auto editor = w->editor();
+        auto* canvas = w->canvas();
+        // Create a regular PNG image on disk and place it onto the workspace.
+        QImage src(80, 60, QImage::Format_RGBA8888);
+        src.fill(QColor(40, 140, 220, 255));
+        const QString imgPath = QDir(data_.path()).filePath("sample_photo.png");
+        QVERIFY(src.save(imgPath));
+        w->placeImage(imgPath, QPointF(200, 180));
+        QCOMPARE(editor->snapshot()->objects.size(), std::size_t(1));
+        const auto& imgObj = *editor->snapshot()->objects[0];
+        QCOMPARE(imgObj.kind(), ObjectKind::Image);
+        QVERIFY(imgObj.as<ImageData>() != nullptr);
+        QCOMPARE(canvas->tool(), app::Tool::Select);
+        // Verify it appears as an Image layer in the Layers panel.
+        auto* tree = w->objects()->tree();
+        QCOMPARE(tree->topLevelItemCount(), 1);
+        QCOMPARE(tree->topLevelItem(0)->text(0), QString("sample_photo"));
+        // Move the image around on the canvas normally with the Select tool (no path conversion needed).
+        auto snap = canvas->snapSettings();
+        snap.enabled = false;
+        canvas->setSnapSettings(snap);
+        drag(canvas, at(canvas, 200, 180), at(canvas, 290, 250));
+        const auto& movedImg = *editor->snapshot()->objects[0];
+        QCOMPARE(movedImg.kind(), ObjectKind::Image);
+        QVERIFY(std::abs(movedImg.transform.position.x - 290) < 2.0);
+        QVERIFY(std::abs(movedImg.transform.position.y - 250) < 2.0);
+    }
+    void languageOptionsAndBrandLocalization() {
+        auto w = window();
+        // Verify all 5 language options exist in the Language menu and English is the default.
+        auto* langMenu = w->findChild<QMenu*>("languageMenu");
+        QVERIFY(langMenu);
+        QVERIFY(w->action("lang_en"));
+        QVERIFY(w->action("lang_zh_TW"));
+        QVERIFY(w->action("lang_zh_CN"));
+        QVERIFY(w->action("lang_ja"));
+        QVERIFY(w->action("lang_es_ES"));
+        QVERIFY(w->action("lang_en")->isChecked());
+        QCOMPARE(app::brandAppName(), QString("Kantan Logo Maker"));
+        QVERIFY(w->windowTitle().contains("Kantan Logo Maker"));
+
+        // Switch to Japanese: "Kantan" uses kanji 簡単, while software/framework/producer names stay intact.
+        w->action("lang_ja")->trigger();
+        QCOMPARE(app::currentLanguage(), app::Language::Japanese);
+        QCOMPARE(app::brandAppName(), QString("簡単 Logo Maker"));
+        QVERIFY(w->windowTitle().contains("簡単 Logo Maker"));
+        const QString jaAbout = app::aboutDialogText("0.1.1");
+        QVERIFY(jaAbout.contains("簡単 Logo Maker"));
+        QVERIFY(jaAbout.contains("0.1.1"));
+        QVERIFY(jaAbout.contains("Kingdom Pots が Claude Opus、GPT 6.1 Sol、Google Gemini 4 を使用して制作"));
+        QVERIFY(!jaAbout.contains("Produced by"));
+        QVERIFY(jaAbout.contains("Qt 6 (LGPL)"));
+        QVERIFY(jaAbout.contains("Clipper2 (BSL-1.0)"));
+
+        // Switch to Chinese Traditional: "Kantan" uses 簡單.
+        w->action("lang_zh_TW")->trigger();
+        QCOMPARE(app::currentLanguage(), app::Language::ChineseTraditional);
+        QCOMPARE(app::brandAppName(), QString("簡單 Logo Maker"));
+        QVERIFY(w->windowTitle().contains("簡單 Logo Maker"));
+
+        // Switch to Chinese Simplified: "Kantan" uses 简单.
+        w->action("lang_zh_CN")->trigger();
+        QCOMPARE(app::currentLanguage(), app::Language::ChineseSimplified);
+        QCOMPARE(app::brandAppName(), QString("简单 Logo Maker"));
+        QVERIFY(w->windowTitle().contains("简单 Logo Maker"));
+
+        // Switch to Spanish (Spain): brand remains "Kantan Logo Maker", UI labels are translated.
+        w->action("lang_es_ES")->trigger();
+        QCOMPARE(app::currentLanguage(), app::Language::Spanish);
+        QCOMPARE(app::brandAppName(), QString("Kantan Logo Maker"));
+        QCOMPARE(app::trUi("File"), QString("Archivo"));
+        QVERIFY(w->windowTitle().contains("Kantan Logo Maker"));
+
+        // Switch back to English default and verify restoration.
+        w->action("lang_en")->trigger();
+        QCOMPARE(app::currentLanguage(), app::Language::English);
+        QCOMPARE(app::brandAppName(), QString("Kantan Logo Maker"));
+        QCOMPARE(app::trUi("File"), QString("File"));
+        QVERIFY(w->windowTitle().contains("Kantan Logo Maker"));
+    }
+    void svgExportUIAndPreset() {
+        auto w = window();
+        QVERIFY(w->action("exportSvg"));
+        auto editor = w->editor();
+        app::ExportDialog dialog(editor->snapshot(), {}, services_, "testlogo");
+        auto* svgBox = dialog.findChild<QCheckBox*>("exportSvg");
+        QVERIFY(svgBox);
+        svgBox->setChecked(true);
+        QVERIFY(dialog.settings().svg);
+
+        auto* preset = dialog.findChild<QComboBox*>("exportPreset");
+        QVERIFY(preset);
+        const int svgPresetIdx = preset->findText("SVG", Qt::MatchContains);
+        QVERIFY(svgPresetIdx > 0);
+        preset->setCurrentIndex(svgPresetIdx);
+        emit preset->activated(svgPresetIdx);
+        QVERIFY(dialog.settings().svg);
+        QVERIFY(!dialog.settings().png);
+    }
+    void photoshopTextToolBehavior() {
+        auto w = window();
+        auto* canvas = w->canvas();
+        auto editor = w->editor();
+        canvas->setTool(app::Tool::Text);
+
+        // 1. Click on empty space: places new text object and opens inline editor.
+        QTest::mouseClick(canvas, Qt::LeftButton, {}, at(canvas, 200, 200));
+        QCOMPARE(editor->snapshot()->objects.size(), std::size_t(1));
+        const auto firstId = editor->snapshot()->objects.front()->id;
+        QVERIFY(canvas->editingText());
+        auto* inline1 = canvas->findChild<QPlainTextEdit*>("inlineText");
+        QVERIFY(inline1);
+        QTest::keyClicks(inline1, "Hello");
+        QTest::keyClick(inline1, Qt::Key_Return);
+        QTest::qWait(30);
+        QVERIFY(!canvas->editingText());
+        QCOMPARE(QString::fromStdString(editor->snapshot()->objects[0]->as<TextData>()->text),
+                 QString("Hello"));
+
+        // 2. Click on the existing text with Text tool active: modifies existing text instead of adding a new
+        // one.
+        QTest::mouseClick(canvas, Qt::LeftButton, {}, at(canvas, 200, 200));
+        QTest::qWait(30);
+        QCOMPARE(editor->snapshot()->objects.size(), std::size_t(1));
+        QCOMPARE(editor->snapshot()->objects.front()->id, firstId);
+        QVERIFY(canvas->editingText());
+        canvas->finishTextEdit(true);
+
+        // 3. Click elsewhere on empty space with Text tool: adds a new text object.
+        QTest::mouseClick(canvas, Qt::LeftButton, {}, at(canvas, 400, 400));
+        QTest::qWait(30);
+        QCOMPARE(editor->snapshot()->objects.size(), std::size_t(2));
+        canvas->finishTextEdit(false);
+    }
+    void appWindowIcon() {
+        auto w = window();
+        QVERIFY(!w->windowIcon().isNull());
+        const QIcon ico(":/icons/app.ico");
+        QVERIFY(!ico.isNull());
+        QVERIFY(ico.availableSizes().size() >= 3);
+        const QIcon png(":/icons/app.png");
+        QVERIFY(!png.isNull());
     }
 };
 QTEST_MAIN(UITests)

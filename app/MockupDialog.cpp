@@ -1,5 +1,6 @@
 #include "app/MockupDialog.h"
 #include "app/CanvasView.h"
+#include "app/I18n.h"
 #include "io/ExportJob.h"
 #include "io/Images.h"
 #include <QComboBox>
@@ -172,7 +173,7 @@ MockupDialog::MockupDialog(Snapshot document, std::shared_ptr<AppServices> servi
     : QDialog(parent), document_(std::move(document)), services_(std::move(services)),
       name_(std::move(name)) {
     setObjectName("mockupDialog");
-    setWindowTitle("Preview on… — " + name_);
+    setWindowTitle(trUi("Preview on…") + " — " + name_);
     resize(800, 760);
     auto root = new QVBoxLayout(this);
     auto top = new QHBoxLayout;
@@ -192,6 +193,7 @@ MockupDialog::MockupDialog(Snapshot document, std::shared_ptr<AppServices> servi
     root->addWidget(buttons);
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
     connect(theme_, &QComboBox::currentIndexChanged, canvas_, qOverload<>(&QWidget::update));
+    retranslateWidgetTree(this);
 }
 bool MockupDialog::dark() const {
     return theme_->currentIndex() == 0;

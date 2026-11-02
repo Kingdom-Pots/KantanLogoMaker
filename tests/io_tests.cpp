@@ -7,6 +7,7 @@
 #include "io/Images.h"
 #include "io/ProjectIO.h"
 #include "io/Serialization.h"
+#include "io/SvgExport.h"
 #include "io/SvgImport.h"
 #include "io/TextShaper.h"
 #include "render/ImageSampling.h"
@@ -69,9 +70,15 @@ DocumentData sampleDocument(const std::shared_ptr<MemoryBudget>& budget, io::Fon
     star.style.effects.dropShadow.enabled = true;
     star.minExportSize = 16;
     star.repeat = {1, {}};
-    ok(e.add(
-        {star, shape(RectangleParams{{12, 4, 12, 4}, false, CornerStyle::Chamfer}, 120, 60, {100, 100})}));
-    ok(e.group(e.created(), ObjectKind::Boolean, BooleanOp::Exclude));
+    Path customPath;
+    SubPath customSub;
+    customSub.nodes = {Node::corner({-40, -40}), Node::corner({40, -40}), Node::corner({0, 40})};
+    customSub.nodes[0].radius = 10;
+    customSub.nodes[0].cornerStyle = CornerStyle::Chamfer;
+    customPath.subpaths.push_back(customSub);
+    ok(e.add({star, shape(RectangleParams{{12, 4, 12, 4}, false, CornerStyle::Chamfer}, 120, 60, {100, 100}),
+              shape(customPath, 80, 80, {180, 180})}));
+    ok(e.group({e.created()[0], e.created()[1]}, ObjectKind::Boolean, BooleanOp::Exclude));
     // Embedded font + text.
     const auto imported = fonts.importFile(fixture("KantanTestSans.ttf"));
     ok(imported.result);
@@ -335,12 +342,25 @@ void exportContracts(const QString& dir, const std::shared_ptr<MemoryBudget>& bu
     QFile blocker(QDir(dir).filePath("blocker"));
     check(blocker.open(QIODevice::WriteOnly), "blocker file");
     blocker.close();
-    io::ExportPlan broken{{}, {{QDir(dir).filePath("blocker/logo_32.png"), false, {{32, 32}}}}};
+    io::ExportPlan broken{{}, {{QDir(dir).filePath("blocker/logo_32.png"), false, false, {{32, 32}}}}};
     check(!io::runExport(*e.snapshot(), broken, s, {}, {}, storage, budget)[0].result,
           "Unwritable destinations fail");
     QFile after(target);
     check(after.open(QIODevice::ReadOnly) && after.readAll() == previous,
           "Failed exports do not touch existing files");
+    // Vector SVG export via ExportJob.
+    ExportSettings sSvg;
+    sSvg.png = false;
+    sSvg.ico = false;
+    sSvg.svg = true;
+    sSvg.svgName = "{name}_vector";
+    const auto svgPlan = io::planExport(sSvg, dir, "logo");
+    ok(svgPlan.result);
+    check(svgPlan.files.size() == 1 && svgPlan.files[0].svg, "SVG file is planned");
+    check(svgPlan.files[0].path.endsWith("logo_vector.svg"), "SVG output file name matches pattern");
+    const auto svgOutcomes = io::runExport(*e.snapshot(), svgPlan, sSvg, {}, {}, storage, budget);
+    check(svgOutcomes.size() == 1 && svgOutcomes[0].result, "SVG export runs successfully");
+    check(QFile::exists(QDir(dir).filePath("logo_vector.svg")), "SVG file written to disk");
 }
 void svgContracts() {
     const QByteArray svg = R"(<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
@@ -359,6 +379,42 @@ void svgContracts() {
     check(std::find(result.unsupported.begin(), result.unsupported.end(), "text") != result.unsupported.end(),
           "Unsupported SVG text is reported");
     check(!io::importSvg("not svg", "x.svg").result, "Garbage is refused");
+
+    // Vector SVG export contracts.
+    DocumentData doc;
+    doc.artboard.width = 400;
+    doc.artboard.height = 300;
+    doc.artboard.transparent = false;
+    doc.artboard.background = {30, 40, 50, 255};
+    Object s;
+    s.id = {1};
+    s.name = "TestRect";
+    s.transform.position = {100, 80};
+    s.data = ShapeData{120, 80, RectangleParams{}};
+    s.style.fill.kind = FillKind::Solid;
+    s.style.fill.color = {255, 128, 0, 255};
+    Outline outline;
+    outline.enabled = true;
+    outline.width = 4.0;
+    outline.paint = Paint{FillKind::Solid, {0, 0, 0, 255}};
+    outline.position = OutlinePosition::Center;
+    s.style.outlines.push_back(outline);
+    doc.objects.push_back(std::make_shared<const Object>(s));
+
+    io::SvgExportOptions opt;
+    opt.transparent = false;
+    opt.background = doc.artboard.background;
+    const auto exported = io::exportSvg(doc, opt);
+    check(!exported.isEmpty(), "Exported SVG is not empty");
+    check(exported.contains("<svg") && exported.contains("</svg>"), "SVG root tags present");
+    check(exported.contains("viewBox=\"0 0 400 300\""), "viewBox matches artboard");
+    check(exported.contains("#ff8000"), "Fill color is serialized to hex");
+    check(exported.contains("stroke=\"#000000\""), "Outline stroke is serialized");
+
+    // Round-trip import into Kantan objects.
+    const auto reimported = io::importSvg(exported, "roundtrip.svg", 400);
+    ok(reimported.result);
+    check(!reimported.objects.empty(), "Imported exported SVG yields shapes");
 }
 void textContracts() {
     auto fonts = std::make_shared<io::FontLibrary>();

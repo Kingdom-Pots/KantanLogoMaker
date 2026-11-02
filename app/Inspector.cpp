@@ -49,7 +49,20 @@ Object propertyDefaults(const Object& source) {
                              source.data);
     if (const auto* shape = source.as<ShapeData>())
         result.as<ShapeData>()->geometry = std::visit(
-            [](const auto& geometry) -> ShapeGeometry { return std::decay_t<decltype(geometry)>{}; },
+            [](const auto& geometry) -> ShapeGeometry {
+                using G = std::decay_t<decltype(geometry)>;
+                if constexpr (std::is_same_v<G, Path>) {
+                    Path p = geometry;
+                    for (auto& s : p.subpaths)
+                        for (auto& n : s.nodes) {
+                            n.radius = 0;
+                            n.cornerStyle = CornerStyle::Round;
+                        }
+                    return p;
+                } else {
+                    return G{};
+                }
+            },
             shape->geometry);
     result.style.outlines.resize(source.style.outlines.size());
     result.style.fill.stops.resize(std::max<std::size_t>(2, source.style.fill.stops.size()));
@@ -80,6 +93,7 @@ Inspector::Inspector(std::shared_ptr<Editor> editor, std::shared_ptr<AppServices
     layout_->addWidget(lockedNotice_);
     // Most-used first: what the object is (text/shape/image settings), then its look, then placement.
     buildTransform();
+    buildNode();
     buildText();
     buildShape();
     buildImage();
@@ -110,7 +124,8 @@ bool Inspector::eventFilter(QObject* watched, QEvent* event) {
             wheelGesture_ = static_cast<bool>(editor_->begin("Adjust property"));
         if (wheelGesture_)
             wheelTimer_.start();
-    } else if (wheelGesture_ && (event->type() == QEvent::FocusOut || event->type() == QEvent::KeyPress)) {
+    } else if (wheelGesture_ && (event->type() == QEvent::FocusOut || event->type() == QEvent::KeyPress ||
+                                 event->type() == QEvent::ShortcutOverride)) {
         wheelTimer_.stop();
         wheelGesture_ = false;
         if (event->type() == QEvent::KeyPress && static_cast<QKeyEvent*>(event)->key() == Qt::Key_Escape) {
@@ -657,11 +672,255 @@ void Inspector::buildTransform() {
         y_->setValue(b.y0);
         w_->setValue(b.width());
         h_->setValue(b.height());
-        angle_->setValue(std::remainder(o.transform.rotation, 360.));
+        const double rot = std::abs(o.transform.rotation) <= 360. ? o.transform.rotation
+                                                                  : std::fmod(o.transform.rotation, 360.);
+        angle_->setValue(rot);
         angle_->setEnabled(editor_->selection().size() == 1);
         for (auto* s : {x_, y_, w_, h_, angle_})
             s->blockSignals(false);
     });
+}
+void Inspector::buildNode() {
+    const auto activeNode = [this](const Object& o) -> const Node* {
+        if (!selectedNode_)
+            return nullptr;
+        const auto* p = shapeParams<Path>(o);
+        if (!p || selectedNode_->subpath >= p->subpaths.size())
+            return nullptr;
+        const auto& sub = p->subpaths[selectedNode_->subpath];
+        return selectedNode_->node < sub.nodes.size() ? &sub.nodes[selectedNode_->node] : nullptr;
+    };
+    const auto activeNodeMut = [this](Object& o) -> Node* {
+        if (!selectedNode_)
+            return nullptr;
+        auto* p = shapeParams<Path>(o);
+        if (!p || selectedNode_->subpath >= p->subpaths.size())
+            return nullptr;
+        auto& sub = p->subpaths[selectedNode_->subpath];
+        return selectedNode_->node < sub.nodes.size() ? &sub.nodes[selectedNode_->node] : nullptr;
+    };
+    const auto updatePathBounds = [](Object& o) {
+        if (auto* s = o.as<ShapeData>())
+            if (const auto* p = std::get_if<Path>(&s->geometry)) {
+                const kantan::Box b = bounds(resolvedCorners(*p));
+                s->width = b.empty() ? 0 : b.width();
+                s->height = b.empty() ? 0 : b.height();
+            }
+    };
+    const auto hasNode = [activeNode](const Object& o) { return activeNode(o) != nullptr; };
+    const auto hasCornerNode = [activeNode](const Object& o) {
+        const auto* n = activeNode(o);
+        return n && n->type == NodeType::Corner;
+    };
+    const auto isPath = [](const Object& o) { return shapeParams<Path>(o) != nullptr; };
+    auto form = section(
+        "Point", [isPath](const Object& o, std::size_t n) { return n == 1 && isPath(o); }, true);
+    pointsList_ = new QListWidget(content_);
+    pointsList_->setObjectName("pointsList");
+    pointsList_->setMaximumHeight(112);
+    pointsList_->setSelectionMode(QAbstractItemView::SingleSelection);
+    pointsList_->setDragDropMode(QAbstractItemView::InternalMove);
+    pointsList_->setDefaultDropAction(Qt::MoveAction);
+    pointsList_->setToolTip("Points of this path · Click to select · Drag or use Up/Down to rearrange order");
+    form->addRow("Points", pointsList_);
+    connect(pointsList_, &QListWidget::currentRowChanged, this, [this](int row) {
+        if (loading_ || row < 0 || row >= pointsList_->count())
+            return;
+        auto* item = pointsList_->item(row);
+        if (!item)
+            return;
+        const NodeRef ref{static_cast<std::size_t>(item->data(Qt::UserRole).toULongLong()),
+                          static_cast<std::size_t>(item->data(Qt::UserRole + 1).toULongLong())};
+        selectedNode_ = ref;
+        emit selectNodeRequested(ref);
+    });
+    connect(
+        pointsList_->model(), &QAbstractItemModel::rowsMoved, this,
+        [this, updatePathBounds, isPath](const QModelIndex&, int start, int, const QModelIndex&, int dest) {
+            if (loading_)
+                return;
+            const auto* o = primary();
+            const auto* p = o ? shapeParams<Path>(*o) : nullptr;
+            if (!p || p->subpaths.empty())
+                return;
+            const std::size_t s =
+                (selectedNode_ && selectedNode_->subpath < p->subpaths.size()) ? selectedNode_->subpath : 0;
+            const auto& sub = p->subpaths[s];
+            const int count = static_cast<int>(sub.nodes.size());
+            if (start < 0 || start >= count)
+                return;
+            const int targetIndex = dest > start ? dest - 1 : dest;
+            if (targetIndex < 0 || targetIndex >= count || targetIndex == start)
+                return;
+            selectedNode_ = NodeRef{s, static_cast<std::size_t>(targetIndex)};
+            edit(
+                "Reorder point",
+                [s, start, targetIndex, updatePathBounds](Object& obj) {
+                    auto* path = shapeParams<Path>(obj);
+                    if (!path || s >= path->subpaths.size())
+                        return;
+                    auto& nodes = path->subpaths[s].nodes;
+                    if (start >= static_cast<int>(nodes.size()) ||
+                        targetIndex >= static_cast<int>(nodes.size()))
+                        return;
+                    Node moved = nodes[static_cast<std::size_t>(start)];
+                    nodes.erase(nodes.begin() + start);
+                    nodes.insert(nodes.begin() + targetIndex, moved);
+                    updatePathBounds(obj);
+                },
+                isPath);
+            emit selectNodeRequested(*selectedNode_);
+        });
+    auto listActionsRow = new QWidget(content_);
+    auto listActionsLayout = new QHBoxLayout(listActionsRow);
+    listActionsLayout->setContentsMargins(0, 0, 0, 2);
+    listActionsLayout->setSpacing(4);
+    auto addPointBtn = new QToolButton(listActionsRow);
+    addPointBtn->setObjectName("pointAddButton");
+    addPointBtn->setText("Add point");
+    addPointBtn->setToolTip("Append a new point as the last point of the list");
+    auto moveUpBtn = new QToolButton(listActionsRow);
+    moveUpBtn->setObjectName("pointMoveUpButton");
+    moveUpBtn->setText("Move up");
+    moveUpBtn->setToolTip("Move the selected point earlier in the point list");
+    auto moveDownBtn = new QToolButton(listActionsRow);
+    moveDownBtn->setObjectName("pointMoveDownButton");
+    moveDownBtn->setText("Move down");
+    moveDownBtn->setToolTip("Move the selected point later in the point list");
+    listActionsLayout->addWidget(addPointBtn);
+    listActionsLayout->addWidget(moveUpBtn);
+    listActionsLayout->addWidget(moveDownBtn);
+    listActionsLayout->addStretch();
+    connect(addPointBtn, &QToolButton::clicked, this, [this] { emit addNodeRequested(); });
+    connect(moveUpBtn, &QToolButton::clicked, this, [this] { emit moveNodeRequested(-1); });
+    connect(moveDownBtn, &QToolButton::clicked, this, [this] { emit moveNodeRequested(1); });
+    form->addRow(QString(), listActionsRow);
+    rows_.push_back({pointsList_, isPath});
+    rows_.push_back({listActionsRow, isPath});
+    loaders_.push_back([this, moveUpBtn, moveDownBtn](const Object& o) {
+        const auto* p = shapeParams<Path>(o);
+        if (!p)
+            return;
+        const QSignalBlocker block(pointsList_);
+        pointsList_->clear();
+        const std::size_t activeSub =
+            (selectedNode_ && selectedNode_->subpath < p->subpaths.size()) ? selectedNode_->subpath : 0;
+        int selectedRow = -1;
+        if (activeSub < p->subpaths.size()) {
+            const auto& sub = p->subpaths[activeSub];
+            for (std::size_t i = 0; i < sub.nodes.size(); ++i) {
+                const auto& n = sub.nodes[i];
+                const QString kind = n.type == NodeType::Smooth ? QStringLiteral("Smooth")
+                                     : n.radius > 0 ? QStringLiteral("Bevel %1").arg(n.radius, 0, 'f', 0)
+                                                    : QStringLiteral("Corner");
+                auto* item = new QListWidgetItem(QStringLiteral("#%1  (%2, %3) · %4")
+                                                     .arg(i + 1)
+                                                     .arg(n.anchor.x, 0, 'f', 0)
+                                                     .arg(n.anchor.y, 0, 'f', 0)
+                                                     .arg(kind),
+                                                 pointsList_);
+                item->setData(Qt::UserRole, static_cast<qulonglong>(activeSub));
+                item->setData(Qt::UserRole + 1, static_cast<qulonglong>(i));
+                if (selectedNode_ && selectedNode_->subpath == activeSub && selectedNode_->node == i)
+                    selectedRow = static_cast<int>(i);
+            }
+        }
+        if (selectedRow >= 0)
+            pointsList_->setCurrentRow(selectedRow);
+        const bool canReorder = selectedRow >= 0 && pointsList_->count() >= 2;
+        moveUpBtn->setEnabled(canReorder);
+        moveDownBtn->setEnabled(canReorder);
+    });
+    combo(
+        form, "Type", {"Corner", "Smooth"},
+        [activeNode](const Object& o) { return activeNode(o)->type == NodeType::Smooth ? 1 : 0; },
+        [this, activeNodeMut, updatePathBounds](Object& o, int v) {
+            auto* n = activeNodeMut(o);
+            if (!n)
+                return;
+            auto& sub = shapeParams<Path>(o)->subpaths[selectedNode_->subpath];
+            const std::size_t count = sub.nodes.size();
+            if (v == 0) {
+                n->type = NodeType::Corner;
+                n->in = n->out = n->anchor;
+            } else {
+                const Point prev = sub.nodes[(selectedNode_->node + count - 1) % count].anchor;
+                const Point next = sub.nodes[(selectedNode_->node + 1) % count].anchor;
+                const Point tangent = (next - prev) * (1. / 6.);
+                n->type = NodeType::Smooth;
+                n->radius = 0;
+                n->in = n->anchor - tangent;
+                n->out = n->anchor + tangent;
+            }
+            updatePathBounds(o);
+        },
+        "Point type", hasNode);
+    number(
+        form, "Point X", -CoordinateLimit, CoordinateLimit, 1,
+        [activeNode](const Object& o) { return activeNode(o)->anchor.x; },
+        [activeNodeMut, updatePathBounds](Object& o, double v) {
+            if (auto* n = activeNodeMut(o)) {
+                const double dx = v - n->anchor.x;
+                n->anchor.x = v;
+                n->in.x += dx;
+                n->out.x += dx;
+                updatePathBounds(o);
+            }
+        },
+        "Move point", hasNode);
+    number(
+        form, "Point Y", -CoordinateLimit, CoordinateLimit, 1,
+        [activeNode](const Object& o) { return activeNode(o)->anchor.y; },
+        [activeNodeMut, updatePathBounds](Object& o, double v) {
+            if (auto* n = activeNodeMut(o)) {
+                const double dy = v - n->anchor.y;
+                n->anchor.y = v;
+                n->in.y += dy;
+                n->out.y += dy;
+                updatePathBounds(o);
+            }
+        },
+        "Move point", hasNode);
+    number(
+        form, "Bevel / radius", 0, 1e5, 1, [activeNode](const Object& o) { return activeNode(o)->radius; },
+        [activeNodeMut, updatePathBounds](Object& o, double v) {
+            if (auto* n = activeNodeMut(o)) {
+                n->radius = std::max(0., v);
+                if (n->radius > 0)
+                    n->in = n->out = n->anchor;
+                updatePathBounds(o);
+            }
+        },
+        "Point bevel", hasCornerNode);
+    combo(
+        form, "Bevel style", {"Round", "Chamfer", "Inverted"},
+        [activeNode](const Object& o) { return static_cast<int>(activeNode(o)->cornerStyle); },
+        [activeNodeMut, updatePathBounds](Object& o, int v) {
+            if (auto* n = activeNodeMut(o)) {
+                n->cornerStyle = static_cast<CornerStyle>(v);
+                updatePathBounds(o);
+            }
+        },
+        "Point bevel style", hasCornerNode);
+    auto actionsRow = new QWidget(content_);
+    auto actionsLayout = new QHBoxLayout(actionsRow);
+    actionsLayout->setContentsMargins(0, 2, 0, 0);
+    actionsLayout->setSpacing(4);
+    auto breakBtn = new QToolButton(actionsRow);
+    breakBtn->setObjectName("pointBreakButton");
+    breakBtn->setText("Break path");
+    breakBtn->setToolTip("Split or open the path at this point");
+    auto deleteBtn = new QToolButton(actionsRow);
+    deleteBtn->setObjectName("pointDeleteButton");
+    deleteBtn->setText("Delete point");
+    deleteBtn->setToolTip("Remove this point from the path (Del)");
+    actionsLayout->addWidget(breakBtn);
+    actionsLayout->addWidget(deleteBtn);
+    actionsLayout->addStretch();
+    connect(breakBtn, &QToolButton::clicked, this, [this] { emit breakNodeRequested(); });
+    connect(deleteBtn, &QToolButton::clicked, this, [this] { emit deleteNodeRequested(); });
+    form->addRow(QString(), actionsRow);
+    rows_.push_back({actionsRow, hasNode});
 }
 void Inspector::buildShape() {
     auto form = section(
@@ -778,11 +1037,62 @@ void Inspector::buildShape() {
                 whole ? QString() : QStringLiteral("%"));
         }
     }
+    const auto explicitPath = [](const Object& o) { return shapeParams<Path>(o) != nullptr; };
     combo(
         form, "Fill rule", {"Non-zero", "Even-odd"},
         [](const Object& o) { return static_cast<int>(shapeParams<Path>(o)->rule); },
         [](Object& o, int v) { shapeParams<Path>(o)->rule = static_cast<FillRule>(v); }, "Fill rule",
-        [](const Object& o) { return shapeParams<Path>(o) != nullptr; });
+        explicitPath);
+    number(
+        form, "All corners", 0, 1e5, 1,
+        [](const Object& o) {
+            const auto* p = shapeParams<Path>(o);
+            for (const auto& s : p->subpaths)
+                for (const auto& n : s.nodes)
+                    if (n.type == NodeType::Corner)
+                        return n.radius;
+            return 0.;
+        },
+        [](Object& o, double v) {
+            auto* p = shapeParams<Path>(o);
+            for (auto& s : p->subpaths)
+                for (auto& n : s.nodes)
+                    if (n.type == NodeType::Corner) {
+                        n.radius = std::max(0., v);
+                        if (n.radius > 0)
+                            n.in = n.out = n.anchor;
+                    }
+            const kantan::Box b = bounds(resolvedCorners(*p));
+            o.as<ShapeData>()->width = b.empty() ? 0 : b.width();
+            o.as<ShapeData>()->height = b.empty() ? 0 : b.height();
+        },
+        "Corner radius", explicitPath);
+    combo(
+        form, "Corner style", {"Round", "Chamfer", "Inverted"},
+        [](const Object& o) {
+            const auto* p = shapeParams<Path>(o);
+            for (const auto& s : p->subpaths)
+                for (const auto& n : s.nodes)
+                    if (n.type == NodeType::Corner)
+                        return static_cast<int>(n.cornerStyle);
+            return 0;
+        },
+        [](Object& o, int v) {
+            auto* p = shapeParams<Path>(o);
+            for (auto& s : p->subpaths)
+                for (auto& n : s.nodes)
+                    if (n.type == NodeType::Corner)
+                        n.cornerStyle = static_cast<CornerStyle>(v);
+        },
+        "Corner style", explicitPath);
+    auto convertBtn = new QToolButton(content_);
+    convertBtn->setObjectName("convertToPathButton");
+    convertBtn->setText("Edit points (Convert to path)");
+    convertBtn->setToolTip("Convert this preset shape into an explicit path so you can move or bevel "
+                           "individual points (Ctrl+Shift+O)");
+    connect(convertBtn, &QToolButton::clicked, this, [this] { emit convertToPathRequested(); });
+    form->addRow(QString(), convertBtn);
+    rows_.push_back({convertBtn, [](const Object& o) { return o.as<ShapeData>() && !shapeParams<Path>(o); }});
 }
 void Inspector::buildText() {
     auto form = section(
@@ -793,18 +1103,16 @@ void Inspector::buildText() {
     text_->setTabChangesFocus(true);
     form->addRow(text_);
     // Commit text after a short pause so typing does not create one undo step per key.
-    auto timer = new QTimer(this);
-    timer->setSingleShot(true);
-    timer->setInterval(350);
-    connect(text_, &QPlainTextEdit::textChanged, timer, [this, timer] {
-        if (!loading_)
-            timer->start();
+    textTimer_.setSingleShot(true);
+    textTimer_.setInterval(350);
+    connect(text_, &QPlainTextEdit::textChanged, this, [this] {
+        if (!loading_) {
+            if (const auto* o = primary())
+                textTarget_ = o->id;
+            textTimer_.start();
+        }
     });
-    connect(timer, &QTimer::timeout, this, [this] {
-        const auto value = text_->toPlainText().left(4096).toStdString();
-        edit(
-            "Edit text", [&](Object& o) { o.as<TextData>()->text = value; }, isKind<TextData>);
-    });
+    connect(&textTimer_, &QTimer::timeout, this, &Inspector::flushTextEdit);
     font_ = new QComboBox(content_);
     font_->setObjectName("fontFamily");
     font_->setMaxVisibleItems(24);
@@ -848,6 +1156,7 @@ void Inspector::buildText() {
         if (!t)
             return;
         loading_ = true;
+        textTarget_ = o.id;
         if (text_->toPlainText().toStdString() != t->text)
             text_->setPlainText(QString::fromStdString(t->text));
         refreshFonts();
@@ -1031,10 +1340,19 @@ void Inspector::buildImage() {
 void Inspector::buildFill() {
     auto form = section(
         "Fill", [](const Object& o, std::size_t) { return styled(o); }, true);
+    const auto ensureStops = [](Paint& p) {
+        if (p.stops.size() < 2)
+            p.stops = {{0., p.color}, {1., {255, 255, 255, 255}}};
+    };
     combo(
         form, "Type", {"None", "Solid", "Linear gradient", "Radial gradient"},
         [](const Object& o) { return static_cast<int>(o.style.fill.kind); },
-        [](Object& o, int v) { o.style.fill.kind = static_cast<FillKind>(v); }, "Fill type", styled);
+        [ensureStops](Object& o, int v) {
+            o.style.fill.kind = static_cast<FillKind>(v);
+            if (o.style.fill.kind == FillKind::Linear || o.style.fill.kind == FillKind::Radial)
+                ensureStops(o.style.fill);
+        },
+        "Fill type", styled);
     const auto solid = [](const Object& o) { return styled(o) && o.style.fill.kind == FillKind::Solid; };
     const auto gradient = [](const Object& o) {
         return styled(o) && (o.style.fill.kind == FillKind::Linear || o.style.fill.kind == FillKind::Radial);
@@ -1043,8 +1361,15 @@ void Inspector::buildFill() {
         form, "Colour", [](const Object& o) { return o.style.fill.color; },
         [](Object& o, Color c) { o.style.fill.color = c; }, "Fill colour", solid);
     color(
-        form, "Start", [](const Object& o) { return o.style.fill.stops.front().color; },
-        [](Object& o, Color c) { o.style.fill.stops.front().color = c; }, "Gradient colour", gradient);
+        form, "Start",
+        [](const Object& o) {
+            return o.style.fill.stops.empty() ? o.style.fill.color : o.style.fill.stops.front().color;
+        },
+        [ensureStops](Object& o, Color c) {
+            ensureStops(o.style.fill);
+            o.style.fill.stops.front().color = c;
+        },
+        "Gradient colour", gradient);
     const auto threeStops = [](const Object& o) {
         return styled(o) && o.style.fill.kind != FillKind::None && o.style.fill.kind != FillKind::Solid &&
                o.style.fill.stops.size() >= 3;
@@ -1055,11 +1380,19 @@ void Inspector::buildFill() {
         [](Object& o, Color c) { o.style.fill.stops[o.style.fill.stops.size() / 2].color = c; },
         "Gradient colour", threeStops);
     color(
-        form, "End", [](const Object& o) { return o.style.fill.stops.back().color; },
-        [](Object& o, Color c) { o.style.fill.stops.back().color = c; }, "Gradient colour", gradient);
+        form, "End",
+        [](const Object& o) {
+            return o.style.fill.stops.empty() ? Color{255, 255, 255, 255} : o.style.fill.stops.back().color;
+        },
+        [ensureStops](Object& o, Color c) {
+            ensureStops(o.style.fill);
+            o.style.fill.stops.back().color = c;
+        },
+        "Gradient colour", gradient);
     check(
         form, "Middle stop", [](const Object& o) { return o.style.fill.stops.size() >= 3; },
-        [](Object& o, bool v) {
+        [ensureStops](Object& o, bool v) {
+            ensureStops(o.style.fill);
             auto& s = o.style.fill.stops;
             if (v && s.size() < 3) {
                 const auto& a = s.front().color;
@@ -1260,6 +1593,30 @@ void Inspector::buildAppearance() {
         form, "  Pivot Y", -1e5, 1e5, 1, [](const Object& o) { return o.repeat.pivot.y; },
         [](Object& o, double v) { o.repeat.pivot.y = v; }, "Repeat pivot", repeated);
 }
+void Inspector::flushTextEdit() {
+    textTimer_.stop();
+    if (!textTarget_ || editor_->busy())
+        return;
+    const auto doc = editor_->snapshot();
+    const auto* o = doc->find(textTarget_);
+    const auto* t = o ? o->as<TextData>() : nullptr;
+    if (!t)
+        return;
+    const auto value = text_->toPlainText().left(4096).toStdString();
+    if (t->text == value)
+        return;
+    Object copy = *o;
+    copy.as<TextData>()->text = value;
+    const auto r = editor_->update("Edit text", {std::move(copy)});
+    if (!r && !r.message.empty())
+        emit feedback(QString::fromStdString(r.message));
+    emit documentChanged();
+}
+void Inspector::setSelectedNode(std::optional<NodeRef> node) {
+    if (selectedNode_ == node)
+        return;
+    selectedNode_ = node;
+}
 void Inspector::focusText() {
     refresh();
     if (text_->isVisible()) {
@@ -1269,10 +1626,15 @@ void Inspector::focusText() {
 }
 void Inspector::refresh() {
     const auto* o = primary();
+    if (textTimer_.isActive() && (!o || o->id != textTarget_ || editor_->selection().size() != 1)) {
+        flushTextEdit();
+        o = primary();
+    }
     const auto count = editor_->selection().size();
     const auto doc = editor_->preview();
     const bool locked = std::any_of(editor_->selection().begin(), editor_->selection().end(),
                                     [&](ObjectId id) { return doc->effectiveLocked(id); });
+    content_->setUpdatesEnabled(false);
     lockedNotice_->setVisible(locked);
     empty_->setVisible(!o);
     for (auto& s : sections_) {
@@ -1281,8 +1643,10 @@ void Inspector::refresh() {
         s.box->setVisible(show && s.header->isChecked());
         s.box->setEnabled(!locked);
     }
-    if (!o)
+    if (!o) {
+        content_->setUpdatesEnabled(true);
         return;
+    }
     loading_ = true;
     for (const auto& load : loaders_) {
         try {
@@ -1299,5 +1663,6 @@ void Inspector::refresh() {
             widget->setVisible(show);
     }
     loading_ = false;
+    content_->setUpdatesEnabled(true);
 }
 } // namespace kantan::app

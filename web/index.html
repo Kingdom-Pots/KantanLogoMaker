@@ -1,0 +1,1656 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<title>Kantan Logo Maker {{VERSION}} (WebGL)</title>
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png" />
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png" />
+<link rel="apple-touch-icon" href="icon-192.png" />
+<style>
+  :root {
+    --bg: #252932;
+    --panel: #20242c;
+    --input: #1b1f27;
+    --border: #373e4c;
+    --text: #dde2eb;
+    --muted: #8d97a6;
+    --accent: #69b7d3;
+    --accent-bg: #38576b;
+    --snap: #ec5abe;
+  }
+  * { box-sizing: border-box; user-select: none; }
+  html, body {
+    margin: 0; padding: 0; width: 100%; height: 100%;
+    background: var(--bg); color: var(--text);
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+    font-size: 12px; overflow: hidden;
+  }
+  #app {
+    display: grid;
+    grid-template-rows: 30px 34px 1fr 24px;
+    grid-template-columns: 38px 1fr 310px;
+    width: 100vw; height: 100vh;
+  }
+  #menubar {
+    grid-column: 1 / -1; background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; padding: 0 8px; gap: 6px;
+  }
+  .menu-btn, .btn {
+    background: #2c323e; color: var(--text);
+    border: 1px solid #3b4351; border-radius: 2px;
+    padding: 3px 8px; cursor: pointer; font-size: 12px;
+  }
+  .menu-btn:hover, .btn:hover { background: #3c4654; }
+  .menu-btn.active, .btn.active { background: var(--accent-bg); border-color: var(--accent); }
+  #optionsbar {
+    grid-column: 1 / -1; background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; padding: 0 8px; gap: 8px;
+  }
+  #toolrail {
+    background: var(--panel); border-right: 1px solid var(--border);
+    display: flex; flex-direction: column; align-items: center;
+    padding: 6px 2px; gap: 4px;
+  }
+  .tool-btn {
+    width: 28px; height: 28px; display: flex; align-items: center; justify-content: center;
+    background: #2c323e; color: var(--text); border: 1px solid #3b4351; border-radius: 2px;
+    cursor: pointer; font-weight: 600; font-size: 11px;
+  }
+  .tool-btn:hover { background: #3c4654; }
+  .tool-btn.active { background: var(--accent-bg); border-color: var(--accent); color: #fff; }
+  #workspace {
+    position: relative; background: #1b1e25; overflow: hidden;
+    display: flex; flex-direction: column;
+  }
+  #canvas-wrap { position: relative; flex: 1; overflow: hidden; }
+  canvas.viewport { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: block; }
+  #sizestrip {
+    height: 76px; background: var(--panel); border-top: 1px solid var(--border);
+    display: flex; align-items: center; gap: 12px; padding: 4px 10px; overflow-x: auto;
+  }
+  .strip-item { display: flex; flex-direction: column; align-items: center; gap: 2px; color: var(--muted); font-size: 10px; }
+  .strip-item canvas { border: 1px solid var(--border); background: #2c323e; image-rendering: pixelated; }
+  #sidebar {
+    background: var(--bg); border-left: 1px solid var(--border);
+    display: flex; flex-direction: column; overflow-y: auto;
+  }
+  .dock-title {
+    background: var(--panel); padding: 5px 8px; font-weight: 600;
+    border-bottom: 1px solid var(--border); border-top: 1px solid var(--border);
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .dock-body { padding: 6px 8px; display: flex; flex-direction: column; gap: 6px; }
+  #layers-list, #points-list {
+    background: var(--input); border: 1px solid var(--border); border-radius: 2px;
+    max-height: 145px; min-height: 90px; overflow-y: auto;
+  }
+  .layer-row, .point-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 4px 6px; cursor: pointer; border-bottom: 1px solid #242933;
+  }
+  .layer-row:hover, .point-row:hover { background: #2c323e; }
+  .layer-row.selected, .point-row.selected { background: #354f67; color: #fff; }
+  .form-row { display: grid; grid-template-columns: 92px 1fr; align-items: center; gap: 6px; }
+  input[type="number"], input[type="text"], select {
+    background: var(--input); color: var(--text); border: 1px solid var(--border);
+    border-radius: 2px; padding: 3px 5px; font-size: 12px; width: 100%; user-select: text;
+  }
+  input[type="color"] {
+    background: var(--input); border: 1px solid var(--border); border-radius: 2px;
+    width: 100%; height: 24px; padding: 1px; cursor: pointer;
+  }
+  .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+  .presets-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 5px; }
+  #statusbar {
+    grid-column: 1 / -1; background: var(--panel); border-top: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between; padding: 0 10px; color: var(--muted);
+  }
+  #tooltip {
+    position: fixed; pointer-events: none; z-index: 50;
+    background: var(--panel); color: var(--text); border: 1px solid #566171;
+    padding: 4px 7px; border-radius: 2px; font-size: 11px; display: none;
+  }
+  #ctxmenu {
+    position: fixed; z-index: 60; background: var(--panel); border: 1px solid #566171;
+    min-width: 170px; padding: 4px 0; display: none; box-shadow: 0 6px 16px rgba(0,0,0,.45);
+  }
+  .ctx-item { padding: 5px 14px; cursor: pointer; }
+  .ctx-item:hover { background: #354f67; }
+  .ctx-sep { height: 1px; background: #3b4351; margin: 4px 6px; }
+  .modal-backdrop {
+    position: fixed; inset: 0; background: rgba(12, 14, 18, 0.72);
+    z-index: 100; display: none; align-items: center; justify-content: center;
+  }
+  .modal {
+    background: var(--bg); border: 1px solid #566171; border-radius: 4px;
+    width: 520px; max-width: 92vw; padding: 16px; box-shadow: 0 12px 32px rgba(0,0,0,.6);
+  }
+  .modal h3 { margin: 0 0 8px 0; font-size: 15px; color: #fff; }
+  .modal p, .modal li { line-height: 1.5; color: var(--text); }
+  .modal ul { padding-left: 18px; margin: 8px 0; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="menubar">
+    <img src="favicon-32.png" alt="Icon" style="width:18px;height:18px;margin-right:6px;vertical-align:middle;border-radius:3px;" />
+    <strong id="brandHeader" style="margin-right:8px;color:#fff;">Kantan Logo Maker {{VERSION}}</strong>
+    <button class="menu-btn" id="btnNew">New</button>
+    <button class="menu-btn" id="btnTemplate">Starter Templates…</button>
+    <button class="menu-btn" id="btnPlaceImg">Place Image…</button>
+    <button class="menu-btn" id="btnSaveJson">Save (.kantanlogo.json)</button>
+    <button class="menu-btn" id="btnLoadJson">Open…</button>
+    <button class="menu-btn" id="btnExportPng">Export PNG</button>
+    <button class="menu-btn" id="btnExportSvg">Export SVG</button>
+    <button class="menu-btn" id="btnUndo">Undo</button>
+    <label style="display:flex;align-items:center;gap:4px;margin-left:8px;cursor:pointer;">
+      <input type="checkbox" id="chkSnap" checked /> <span id="lblSnap">Snap &amp; Align</span>
+    </label>
+    <div style="flex:1"></div>
+    <span id="webglBadge" style="color:var(--accent);font-size:11px;margin-right:8px;">WebGL Ready</span>
+    <select id="langSelect" style="width:auto;min-width:140px;margin-right:4px;" title="Language">
+      <option value="en">English</option>
+      <option value="zh_TW">繁體中文 (Chinese Traditional)</option>
+      <option value="zh_CN">简体中文 (Chinese Simplified)</option>
+      <option value="ja">日本語 (Japanese)</option>
+      <option value="es_ES">Español (España)</option>
+    </select>
+    <button class="menu-btn" id="btnAbout">About Kantan Logo Maker</button>
+  </div>
+
+  <div id="optionsbar">
+    <span id="lblPreset" style="color:var(--muted)">Preset:</span>
+    <select id="shapePresetSelect" style="width:130px;">
+      <option value="rect">Rectangle</option>
+      <option value="polygon">Polygon</option>
+      <option value="star">Star</option>
+      <option value="shield">Bastion Shield</option>
+      <option value="tower">Citadel Tower</option>
+    </select>
+    <button class="btn" id="btnConvertPath">Edit points (Convert to path)</button>
+    <button class="btn" id="btnAddPointTop">Add point</button>
+    <button class="btn" id="btnAlignCenter">Centre on Canvas</button>
+    <button class="btn" id="btnFit">Fit Artboard</button>
+    <span id="lblTip" style="color:var(--muted);margin-left:6px;">
+      Tip: Double-click any shape to expose points · Hold Shift while dragging a point to lock axis &amp; align to other points
+    </span>
+  </div>
+
+  <div id="toolrail">
+    <button class="tool-btn active" data-tool="select" title="Select (V)">V</button>
+    <button class="tool-btn" data-tool="direct" title="Direct select / Points (A)">A</button>
+    <button class="tool-btn" data-tool="pen" title="Pen (P)">P</button>
+    <button class="tool-btn" data-tool="shape" title="Shape (R)">R</button>
+    <button class="tool-btn" data-tool="ellipse" title="Ellipse (E)">E</button>
+    <button class="tool-btn" data-tool="text" title="Text (T)">T</button>
+    <button class="tool-btn" data-tool="image" title="Place image (I)">I</button>
+  </div>
+
+  <div id="workspace">
+    <div id="canvas-wrap">
+      <canvas id="glCanvas" class="viewport"></canvas>
+      <canvas id="artCanvas" class="viewport"></canvas>
+    </div>
+    <div id="sizestrip">
+      <strong id="lblSizePreview" style="color:var(--muted);min-width:74px;">Size preview</strong>
+      <div class="strip-item"><canvas width="16" height="16" data-size="16" style="width:32px;height:32px"></canvas><span>16 px</span></div>
+      <div class="strip-item"><canvas width="24" height="24" data-size="24" style="width:36px;height:36px"></canvas><span>24 px</span></div>
+      <div class="strip-item"><canvas width="32" height="32" data-size="32" style="width:40px;height:40px"></canvas><span>32 px</span></div>
+      <div class="strip-item"><canvas width="48" height="48" data-size="48" style="width:48px;height:48px"></canvas><span>48 px</span></div>
+      <div class="strip-item"><canvas width="64" height="64" data-size="64" style="width:52px;height:52px"></canvas><span>64 px</span></div>
+    </div>
+  </div>
+
+  <div id="sidebar">
+    <div class="dock-title">
+      <span id="lblLayersDock">Layers</span>
+      <div style="display:flex;gap:4px;">
+        <button class="btn" id="btnLayerUp" title="Bring forward">↑</button>
+        <button class="btn" id="btnLayerDown" title="Send backward">↓</button>
+        <button class="btn" id="btnLayerDel" title="Delete layer">Del</button>
+      </div>
+    </div>
+    <div class="dock-body">
+      <div id="layers-list"></div>
+    </div>
+
+    <div class="dock-title"><span id="lblInspectorDock">Inspector — Transform &amp; Style</span></div>
+    <div class="dock-body">
+      <div class="form-row"><span id="lblFormName">Name</span><input type="text" id="inpName" /></div>
+      <div class="form-row"><span id="lblFormPos">Position (X, Y)</span><div class="pair"><input type="number" id="inpX" step="1" /><input type="number" id="inpY" step="1" /></div></div>
+      <div class="form-row"><span id="lblFormSize">Size (W, H)</span><div class="pair"><input type="number" id="inpW" step="1" min="2" /><input type="number" id="inpH" step="1" min="2" /></div></div>
+      <div class="form-row"><span id="lblFormRot">Rotation (°)</span><input type="number" id="inpRot" step="1" /></div>
+      <div class="form-row"><span id="lblFormFill">Fill Colour</span><input type="color" id="inpFill" value="#243c5a" /></div>
+      <div class="form-row"><span id="lblFormStrokeW">Outline Width</span><input type="number" id="inpStrokeW" step="1" min="0" max="100" value="0" /></div>
+      <div class="form-row"><span id="lblFormStrokeC">Outline Colour</span><input type="color" id="inpStrokeC" value="#f5f2eb" /></div>
+      <div class="form-row" id="rowText" style="display:none;"><span id="lblFormText">Text</span><input type="text" id="inpText" /></div>
+    </div>
+
+    <div class="dock-title" id="pointDockTitle">
+      <span id="lblPointDock">Point List &amp; Bevel</span>
+      <div style="display:flex;gap:3px;">
+        <button class="btn" id="btnPtAdd" title="Add point at end of list">+ Pt</button>
+        <button class="btn" id="btnPtUp" title="Move point up in list">↑</button>
+        <button class="btn" id="btnPtDown" title="Move point down in list">↓</button>
+        <button class="btn" id="btnPtDel" title="Delete selected point">✕</button>
+      </div>
+    </div>
+    <div class="dock-body" id="pointDockBody">
+      <div id="points-list"></div>
+      <div class="form-row"><span id="lblFormPtPos">Point (X, Y)</span><div class="pair"><input type="number" id="inpPtX" step="1" /><input type="number" id="inpPtY" step="1" /></div></div>
+      <div class="form-row"><span id="lblFormPtBevel">Bevel / Radius</span><input type="number" id="inpPtBevel" step="1" min="0" max="300" value="0" /></div>
+      <div class="form-row"><span id="lblFormPtStyle">Bevel Style</span>
+        <select id="inpPtStyle">
+          <option value="round">Round</option>
+          <option value="chamfer">Chamfer</option>
+          <option value="inverted">Inverted</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="dock-title"><span id="lblTemplatesDock">Starter Templates</span></div>
+    <div class="dock-body">
+      <div class="presets-grid">
+        <button class="btn" data-tpl="bastion">Bastion</button>
+        <button class="btn" data-tpl="tower">Tower</button>
+        <button class="btn" data-tpl="dairy">Dairy</button>
+        <button class="btn" data-tpl="fruits">Fruits</button>
+        <button class="btn" data-tpl="books">Books</button>
+        <button class="btn" data-tpl="tech">Tech Icon</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="statusbar">
+    <span id="statusMsg">Ready · Double-click any shape to expose points to edit</span>
+    <span id="statusInfo">512 × 512 · Kantan Logo Maker v{{VERSION}} (WebGL)</span>
+  </div>
+</div>
+
+<div id="tooltip"></div>
+<div id="ctxmenu">
+  <div class="ctx-item" id="ctxAddPoint">Add point (at end of list)</div>
+  <div class="ctx-item" id="ctxMovePtUp">Move point up</div>
+  <div class="ctx-item" id="ctxMovePtDown">Move point down</div>
+  <div class="ctx-item" id="ctxDelPoint">Delete point</div>
+  <div class="ctx-sep"></div>
+  <div class="ctx-item" id="ctxPlaceImg">Place image…</div>
+  <div class="ctx-item" id="ctxDuplicate">Duplicate layer</div>
+  <div class="ctx-item" id="ctxDeleteObj">Delete layer</div>
+</div>
+
+<div class="modal-backdrop" id="aboutModal">
+  <div class="modal">
+    <h3 id="aboutTitle">About Kantan Logo Maker</h3>
+    <div id="aboutBody">
+      <p><strong>Kantan Logo Maker {{VERSION}}</strong><br/>
+      A small, fast logo and icon maker.<br/>
+      <strong>Produced by Kingdom Pots using Claude Opus, GPT 6.1 Sol and Google Gemini 4</strong></p>
+      <p><strong>Frameworks &amp; Open-Source Libraries:</strong></p>
+      <ul>
+        <li><strong>Qt 6 (LGPL)</strong> — Cross-platform desktop user interface, windowing and graphics framework.</li>
+        <li><strong>Clipper2 (BSL-1.0)</strong> — 2D polygon geometry library used for boolean shape operations (Union, Subtract, Intersect, Exclude) and path offsetting/outlines.</li>
+        <li><strong>nanosvg (zlib)</strong> — Lightweight SVG parser used to import vector graphics and symbol presets.</li>
+        <li><strong>Miniz (MIT)</strong> — Fast lossless data compression and ZIP archive library used to save and load <code>.kantanlogo</code> project files.</li>
+        <li><strong>Fluent System Icons (MIT)</strong> — Microsoft's open-source icon set used for the toolbar and interface icons.</li>
+      </ul>
+      <p style="color:var(--muted);font-size:11px;">See the notices folder for full licence texts.</p>
+    </div>
+    <div style="display:flex;justify-content:flex-end;margin-top:12px;">
+      <button class="btn active" id="btnCloseAbout">OK</button>
+    </div>
+  </div>
+</div>
+
+<input type="file" id="fileImage" accept="image/*" style="display:none" />
+<input type="file" id="fileLoadJson" accept=".json,.kantanlogo" style="display:none" />
+
+<script>
+(() => {
+  const VERSION = "{{VERSION}}";
+  const glCanvas = document.getElementById("glCanvas");
+  const artCanvas = document.getElementById("artCanvas");
+  const ctx = artCanvas.getContext("2d");
+  const gl = glCanvas.getContext("webgl2") || glCanvas.getContext("webgl");
+  const webglBadge = document.getElementById("webglBadge");
+
+  // Initialize hardware-accelerated WebGL backdrop & texture compositor
+  let glProg = null, glTex = null, glBuf = null;
+  if (gl) {
+    webglBadge.textContent = (gl instanceof WebGL2RenderingContext ? "WebGL 2" : "WebGL 1") + " Active · v" + VERSION;
+    const vsSrc = "attribute vec2 aPos; varying vec2 vUv; void main(){ vUv = aPos * 0.5 + 0.5; vUv.y = 1.0 - vUv.y; gl_Position = vec4(aPos, 0.0, 1.0); }";
+    const fsSrc = "precision mediump float; varying vec2 vUv; uniform sampler2D uTex; void main(){ gl_FragColor = texture2D(uTex, vUv); }";
+    const compile = (type, src) => { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s); return s; };
+    glProg = gl.createProgram();
+    gl.attachShader(glProg, compile(gl.VERTEX_SHADER, vsSrc));
+    gl.attachShader(glProg, compile(gl.FRAGMENT_SHADER, fsSrc));
+    gl.linkProgram(glProg);
+    glBuf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, glBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+    glTex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, glTex);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  } else {
+    webglBadge.textContent = "Canvas2D Fallback · v" + VERSION;
+  }
+
+  const state = {
+    lang: "en",
+    artboard: { width: 512, height: 512, bg: "#ffffff", transparent: true },
+    tool: "select",
+    snap: true,
+    zoom: 1,
+    pan: { x: 80, y: 40 },
+    objects: [],
+    selectedId: null,
+    selectedNode: null,
+    hoverId: null,
+    snapGuide: { x: null, y: null },
+    history: []
+  };
+
+  let nextId = 1;
+  const pt = (x, y, radius = 0, style = "round") => ({ x, y, radius, style });
+
+  function makeRectNodes(w, h, r = 0) {
+    const hw = w / 2, hh = h / 2;
+    return [pt(-hw, -hh, r), pt(hw, -hh, r), pt(hw, hh, r), pt(-hw, hh, r)];
+  }
+  function makePolygonNodes(w, h, sides = 5, r = 0) {
+    const out = [];
+    for (let i = 0; i < sides; i++) {
+      const a = (2 * Math.PI * i) / sides;
+      out.push(pt(Math.round((w / 2) * Math.sin(a)), Math.round(-(h / 2) * Math.cos(a)), r));
+    }
+    return out;
+  }
+  function makeStarNodes(w, h, points = 5, inner = 0.45, r = 0) {
+    const out = [];
+    for (let i = 0; i < points * 2; i++) {
+      const k = i % 2 ? inner : 1;
+      const a = (Math.PI * i) / points;
+      out.push(pt(Math.round((w / 2) * k * Math.sin(a)), Math.round(-(h / 2) * k * Math.cos(a)), r));
+    }
+    return out;
+  }
+
+  function pushUndo() {
+    state.history.push(JSON.stringify(state.objects.map(o => ({ ...o, img: undefined }))));
+    if (state.history.length > 40) state.history.shift();
+  }
+
+  function loadTemplate(name) {
+    pushUndo();
+    state.objects = [];
+    state.selectedNode = null;
+    if (name === "bastion") {
+      state.objects.push(
+        { id: nextId++, name: "Shield Base", kind: "path", x: 256, y: 205, w: 220, h: 220, rot: 0, fill: "#182232", strokeW: 8, strokeC: "#d8a648", closed: true,
+          nodes: [pt(0, -110, 6), pt(105, -45, 6), pt(75, 85, 6), pt(0, 115, 6), pt(-75, 85, 6), pt(-105, -45, 6)] },
+        { id: nextId++, name: "Bastion Chevron", kind: "path", x: 256, y: 192, w: 120, h: 110, rot: 0, fill: "#d8a648", strokeW: 0, strokeC: "#000000", closed: true,
+          nodes: [pt(0, -58, 0), pt(60, -14, 0), pt(44, 48, 0), pt(0, 18, 0), pt(-44, 48, 0), pt(-60, -14, 0)] },
+        { id: nextId++, name: "BASTION", kind: "text", x: 256, y: 400, w: 260, h: 44, rot: 0, fill: "#f4f6f9", strokeW: 0, strokeC: "#000000", text: "BASTION" }
+      );
+    } else if (name === "tower") {
+      state.objects.push(
+        { id: nextId++, name: "Hex Frame", kind: "path", x: 256, y: 205, w: 230, h: 230, rot: 0, fill: "#1e2631", strokeW: 6, strokeC: "#d26846", closed: true,
+          nodes: makePolygonNodes(230, 230, 6, 8) },
+        { id: nextId++, name: "Tower Body", kind: "path", x: 256, y: 210, w: 110, h: 130, rot: 0, fill: "#f2ede4", strokeW: 0, strokeC: "#000000", closed: true,
+          nodes: [pt(-38, -58), pt(38, -58), pt(52, 65), pt(-52, 65)] },
+        { id: nextId++, name: "Arch Gate", kind: "path", x: 256, y: 250, w: 32, h: 50, rot: 0, fill: "#d26846", strokeW: 0, strokeC: "#000000", closed: true,
+          nodes: [pt(-16, -24, 14), pt(16, -24, 14), pt(16, 25, 0), pt(-16, 25, 0)] },
+        { id: nextId++, name: "CITADEL", kind: "text", x: 256, y: 404, w: 240, h: 42, rot: 0, fill: "#f2ede4", strokeW: 0, strokeC: "#000000", text: "CITADEL" }
+      );
+    } else if (name === "dairy") {
+      state.objects.push(
+        { id: nextId++, name: "Badge", kind: "path", x: 256, y: 256, w: 380, h: 380, rot: 0, fill: "#1f6590", strokeW: 0, strokeC: "#000000", closed: true,
+          nodes: makeRectNodes(380, 380, 68) },
+        { id: nextId++, name: "Milk Bottle", kind: "path", x: 256, y: 215, w: 130, h: 190, rot: 0, fill: "#f7f9fc", strokeW: 0, strokeC: "#000000", closed: true,
+          nodes: [pt(-32, -88, 4), pt(32, -88, 4), pt(32, -52, 8), pt(64, -10, 16), pt(64, 88, 18), pt(-64, 88, 18), pt(-64, -10, 16), pt(-32, -52, 8)] },
+        { id: nextId++, name: "DAIRY CO", kind: "text", x: 256, y: 382, w: 240, h: 40, rot: 0, fill: "#f7f9fc", strokeW: 0, strokeC: "#000000", text: "DAIRY CO" }
+      );
+    } else if (name === "fruits") {
+      state.objects.push(
+        { id: nextId++, name: "Card", kind: "path", x: 256, y: 256, w: 380, h: 380, rot: 0, fill: "#f6f3ea", strokeW: 6, strokeC: "#2e6f56", closed: true,
+          nodes: makeRectNodes(380, 380, 64) },
+        { id: nextId++, name: "Apple", kind: "path", x: 256, y: 215, w: 170, h: 155, rot: 0, fill: "#e0533c", strokeW: 0, strokeC: "#000000", closed: true,
+          nodes: [pt(0, -62, 16), pt(58, -72, 36), pt(84, -10, 32), pt(56, 72, 28), pt(0, 64, 14), pt(-56, 72, 28), pt(-84, -10, 32), pt(-58, -72, 36)] },
+        { id: nextId++, name: "ORCHARD", kind: "text", x: 256, y: 378, w: 240, h: 40, rot: 0, fill: "#2e6f56", strokeW: 0, strokeC: "#000000", text: "ORCHARD" }
+      );
+    } else if (name === "books") {
+      state.objects.push(
+        { id: nextId++, name: "Square", kind: "path", x: 256, y: 256, w: 380, h: 380, rot: 0, fill: "#1b2838", strokeW: 0, strokeC: "#000000", closed: true,
+          nodes: makeRectNodes(380, 380, 56) },
+        { id: nextId++, name: "Open Pages", kind: "path", x: 256, y: 205, w: 210, h: 130, rot: 0, fill: "#f3efe6", strokeW: 0, strokeC: "#000000", closed: true,
+          nodes: [pt(-104, -58, 4), pt(0, -42, 4), pt(104, -58, 4), pt(104, 52, 4), pt(0, 68, 4), pt(-104, 52, 4)] },
+        { id: nextId++, name: "Bookmark", kind: "path", x: 256, y: 215, w: 26, h: 150, rot: 0, fill: "#e07a3c", strokeW: 0, strokeC: "#000000", closed: true,
+          nodes: [pt(-13, -64), pt(13, -64), pt(13, 76), pt(0, 62), pt(-13, 76)] },
+        { id: nextId++, name: "ATELIER PRESS", kind: "text", x: 256, y: 380, w: 260, h: 36, rot: 0, fill: "#f3efe6", strokeW: 0, strokeC: "#000000", text: "ATELIER PRESS" }
+      );
+    } else {
+      state.objects.push(
+        { id: nextId++, name: "Squircle", kind: "path", x: 256, y: 256, w: 380, h: 380, rot: 0, fill: "#162038", strokeW: 0, strokeC: "#000000", closed: true,
+          nodes: makeRectNodes(380, 380, 84) },
+        { id: nextId++, name: "Upper Wing", kind: "path", x: 244, y: 212, w: 140, h: 90, rot: 0, fill: "#38b6ff", strokeW: 0, strokeC: "#000000", closed: true,
+          nodes: [pt(16, -45, 8), pt(68, 35, 8), pt(-68, 35, 8)] },
+        { id: nextId++, name: "Lower Wing", kind: "path", x: 268, y: 296, w: 140, h: 90, rot: 0, fill: "#f4f7fb", strokeW: 0, strokeC: "#000000", closed: true,
+          nodes: [pt(-68, -35, 8), pt(68, -35, 8), pt(-16, 45, 8)] }
+      );
+    }
+    state.selectedId = state.objects[0]?.id || null;
+    syncUI();
+  }
+
+  function updateBoundsFromNodes(o) {
+    if (!o.nodes || !o.nodes.length) return;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const n of o.nodes) {
+      if (n.x < minX) minX = n.x;
+      if (n.y < minY) minY = n.y;
+      if (n.x > maxX) maxX = n.x;
+      if (n.y > maxY) maxY = n.y;
+    }
+    o.w = Math.max(4, Math.round(maxX - minX));
+    o.h = Math.max(4, Math.round(maxY - minY));
+  }
+
+  function drawBevelledPath(c, nodes, closed) {
+    if (!nodes || !nodes.length) return;
+    c.beginPath();
+    const len = nodes.length;
+    for (let i = 0; i < len; i++) {
+      const prev = nodes[(i - 1 + len) % len];
+      const cur = nodes[i];
+      const next = nodes[(i + 1) % len];
+      const r = Math.max(0, cur.radius || 0);
+      if (r > 0 && (closed || (i > 0 && i < len - 1))) {
+        const vx1 = prev.x - cur.x, vy1 = prev.y - cur.y;
+        const vx2 = next.x - cur.x, vy2 = next.y - cur.y;
+        const l1 = Math.hypot(vx1, vy1), l2 = Math.hypot(vx2, vy2);
+        const clampR = Math.min(r, l1 * 0.48, l2 * 0.48);
+        const p1x = cur.x + (vx1 / (l1 || 1)) * clampR;
+        const p1y = cur.y + (vy1 / (l1 || 1)) * clampR;
+        const p2x = cur.x + (vx2 / (l2 || 1)) * clampR;
+        const p2y = cur.y + (vy2 / (l2 || 1)) * clampR;
+        if (i === 0) c.moveTo(p1x, p1y); else c.lineTo(p1x, p1y);
+        if (cur.style === "chamfer") {
+          c.lineTo(p2x, p2y);
+        } else if (cur.style === "inverted") {
+          const mx = (p1x + p2x) - cur.x, my = (p1y + p2y) - cur.y;
+          c.quadraticCurveTo(mx, my, p2x, p2y);
+        } else {
+          c.quadraticCurveTo(cur.x, cur.y, p2x, p2y);
+        }
+      } else {
+        if (i === 0) c.moveTo(cur.x, cur.y); else c.lineTo(cur.x, cur.y);
+      }
+    }
+    if (closed) c.closePath();
+  }
+
+  function renderArtworkToContext(c, width, height, scaleX, scaleY) {
+    c.save();
+    c.scale(scaleX, scaleY);
+    for (const o of state.objects) {
+      c.save();
+      c.translate(o.x, o.y);
+      c.rotate((o.rot || 0) * Math.PI / 180);
+      if (o.kind === "image" && o.img) {
+        c.drawImage(o.img, -o.w / 2, -o.h / 2, o.w, o.h);
+      } else if (o.kind === "text") {
+        c.fillStyle = o.fill || "#ffffff";
+        c.font = `700 ${Math.max(14, o.h || 36)}px "Bahnschrift", "Segoe UI", sans-serif`;
+        c.textAlign = "center";
+        c.textBaseline = "middle";
+        c.fillText(o.text || o.name, 0, 0);
+      } else if (o.nodes) {
+        drawBevelledPath(c, o.nodes, o.closed !== false);
+        if (o.fill && o.closed !== false) {
+          c.fillStyle = o.fill;
+          c.fill();
+        }
+        if (o.strokeW > 0) {
+          c.lineWidth = o.strokeW;
+          c.strokeStyle = o.strokeC || "#ffffff";
+          c.lineJoin = "round";
+          c.stroke();
+        }
+      }
+      c.restore();
+    }
+    c.restore();
+  }
+
+  function render() {
+    const rect = artCanvas.parentElement.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    if (artCanvas.width !== Math.floor(rect.width * dpr) || artCanvas.height !== Math.floor(rect.height * dpr)) {
+      artCanvas.width = glCanvas.width = Math.floor(rect.width * dpr);
+      artCanvas.height = glCanvas.height = Math.floor(rect.height * dpr);
+    }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, rect.width, rect.height);
+
+    // Checkerboard artboard
+    const bx = state.pan.x, by = state.pan.y;
+    const bw = state.artboard.width * state.zoom, bh = state.artboard.height * state.zoom;
+    ctx.fillStyle = "#343a45";
+    ctx.fillRect(bx, by, bw, bh);
+    const cell = 12;
+    ctx.save();
+    ctx.beginPath(); ctx.rect(bx, by, bw, bh); ctx.clip();
+    ctx.fillStyle = "#464d5a";
+    for (let y = by; y < by + bh; y += cell) {
+      for (let x = bx; x < bx + bw; x += cell) {
+        if (((Math.floor((x - bx) / cell) + Math.floor((y - by) / cell)) & 1) === 0) {
+          ctx.fillRect(x, y, cell, cell);
+        }
+      }
+    }
+    ctx.translate(bx, by);
+    renderArtworkToContext(ctx, state.artboard.width, state.artboard.height, state.zoom, state.zoom);
+    ctx.restore();
+
+    ctx.strokeStyle = "#5a6474";
+    ctx.strokeRect(bx - 0.5, by - 0.5, bw + 1, bh + 1);
+
+    // Selection & Direct point overlay
+    const sel = state.objects.find(o => o.id === state.selectedId);
+    if (sel) {
+      ctx.save();
+      ctx.translate(bx + sel.x * state.zoom, by + sel.y * state.zoom);
+      ctx.rotate((sel.rot || 0) * Math.PI / 180);
+      ctx.strokeStyle = "#69b7d3";
+      ctx.lineWidth = 1.2;
+      if (state.tool === "direct" && sel.nodes) {
+        drawBevelledPath(ctx, sel.nodes.map(n => ({ ...n, x: n.x * state.zoom, y: n.y * state.zoom, radius: (n.radius || 0) * state.zoom })), sel.closed !== false);
+        ctx.stroke();
+        sel.nodes.forEach((n, idx) => {
+          const nx = n.x * state.zoom, ny = n.y * state.zoom;
+          const active = state.selectedNode === idx;
+          ctx.fillStyle = active ? "#69b7d3" : "#ffffff";
+          ctx.strokeStyle = "#69b7d3";
+          if (n.radius > 0) {
+            ctx.beginPath();
+            ctx.moveTo(nx, ny - 5); ctx.lineTo(nx + 5, ny); ctx.lineTo(nx, ny + 5); ctx.lineTo(nx - 5, ny);
+            ctx.closePath(); ctx.fill(); ctx.stroke();
+          } else {
+            ctx.fillRect(nx - 4, ny - 4, 8, 8);
+            ctx.strokeRect(nx - 4, ny - 4, 8, 8);
+          }
+        });
+      } else {
+        ctx.strokeRect((-sel.w / 2) * state.zoom, (-sel.h / 2) * state.zoom, sel.w * state.zoom, sel.h * state.zoom);
+      }
+      ctx.restore();
+    }
+
+    // Pink alignment / snap guides
+    if (state.snapGuide.x !== null || state.snapGuide.y !== null) {
+      ctx.save();
+      ctx.strokeStyle = "#ec5abe";
+      ctx.lineWidth = 1;
+      if (state.snapGuide.x !== null) {
+        const gx = bx + state.snapGuide.x * state.zoom;
+        ctx.beginPath(); ctx.moveTo(gx, 0); ctx.lineTo(gx, rect.height); ctx.stroke();
+      }
+      if (state.snapGuide.y !== null) {
+        const gy = by + state.snapGuide.y * state.zoom;
+        ctx.beginPath(); ctx.moveTo(0, gy); ctx.lineTo(rect.width, gy); ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    // Flush to WebGL hardware surface if active
+    if (gl && glProg) {
+      gl.viewport(0, 0, glCanvas.width, glCanvas.height);
+      gl.clearColor(0.106, 0.118, 0.145, 1.0);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      gl.useProgram(glProg);
+      gl.bindTexture(gl.TEXTURE_2D, glTex);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, artCanvas);
+      const loc = gl.getAttribLocation(glProg, "aPos");
+      gl.bindBuffer(gl.ARRAY_BUFFER, glBuf);
+      gl.enableVertexAttribArray(loc);
+      gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    }
+
+    // Update live size strip previews
+    document.querySelectorAll("#sizestrip canvas").forEach(sc => {
+      const sz = Number(sc.dataset.size);
+      const sctx = sc.getContext("2d");
+      sctx.clearRect(0, 0, sz, sz);
+      renderArtworkToContext(sctx, sz, sz, sz / state.artboard.width, sz / state.artboard.height);
+    });
+  }
+
+  function toArtboard(clientX, clientY) {
+    const r = artCanvas.getBoundingClientRect();
+    return {
+      x: (clientX - r.left - state.pan.x) / state.zoom,
+      y: (clientY - r.top - state.pan.y) / state.zoom
+    };
+  }
+
+  function hitTest(ax, ay) {
+    for (let i = state.objects.length - 1; i >= 0; i--) {
+      const o = state.objects[i];
+      if (Math.abs(ax - o.x) <= o.w / 2 + 6 && Math.abs(ay - o.y) <= o.h / 2 + 6) return o;
+    }
+    return null;
+  }
+
+  function hitNode(o, ax, ay) {
+    if (!o || !o.nodes) return -1;
+    const tol = 8 / state.zoom;
+    for (let i = 0; i < o.nodes.length; i++) {
+      const wx = o.x + o.nodes[i].x, wy = o.y + o.nodes[i].y;
+      if (Math.hypot(ax - wx, ay - wy) <= tol) return i;
+    }
+    return -1;
+  }
+
+  // Snap point to sibling nodes, other objects' nodes/centres, and artboard centre
+  function snapNodePosition(obj, nodeIdx, startWorld, rawDelta, shiftKey, ctrlKey) {
+    let dx = rawDelta.x, dy = rawDelta.y;
+    let lockX = false, lockY = false;
+    if (shiftKey) {
+      if (Math.abs(dx) >= Math.abs(dy)) { dy = 0; lockY = true; }
+      else { dx = 0; lockX = true; }
+    }
+    state.snapGuide = { x: null, y: null };
+    if (!state.snap || ctrlKey) return { x: startWorld.x + dx, y: startWorld.y + dy };
+
+    const tx = [0, state.artboard.width / 2, state.artboard.width];
+    const ty = [0, state.artboard.height / 2, state.artboard.height];
+    for (const other of state.objects) {
+      if (other.id !== obj.id) {
+        tx.push(other.x - other.w / 2, other.x, other.x + other.w / 2);
+        ty.push(other.y - other.h / 2, other.y, other.y + other.h / 2);
+      }
+      if (other.nodes) {
+        other.nodes.forEach((n, idx) => {
+          if (other.id === obj.id && idx === nodeIdx) return;
+          tx.push(other.x + n.x);
+          ty.push(other.y + n.y);
+        });
+      }
+    }
+    const tol = 6 / state.zoom;
+    let wx = startWorld.x + dx, wy = startWorld.y + dy;
+    if (!lockX) {
+      let bestD = tol;
+      for (const t of tx) {
+        const d = Math.abs(t - wx);
+        if (d <= bestD) { bestD = d; wx = t; state.snapGuide.x = t; }
+      }
+    }
+    if (!lockY) {
+      let bestD = tol;
+      for (const t of ty) {
+        const d = Math.abs(t - wy);
+        if (d <= bestD) { bestD = d; wy = t; state.snapGuide.y = t; }
+      }
+    }
+    return { x: Math.round(wx), y: Math.round(wy) };
+  }
+
+  let drag = null;
+  const tooltip = document.getElementById("tooltip");
+
+  artCanvas.addEventListener("mousedown", e => {
+    hideCtxMenu();
+    const p = toArtboard(e.clientX, e.clientY);
+    const sel = state.objects.find(o => o.id === state.selectedId);
+
+    if (e.button === 1) {
+      drag = { kind: "pan", sx: e.clientX, sy: e.clientY, px: state.pan.x, py: state.pan.y };
+      return;
+    }
+    if (e.button !== 0) return;
+
+    if (state.tool === "direct" && sel && sel.nodes) {
+      const ni = hitNode(sel, p.x, p.y);
+      if (ni >= 0) {
+        pushUndo();
+        state.selectedNode = ni;
+        const n = sel.nodes[ni];
+        drag = { kind: "node", obj: sel, nodeIdx: ni, startWorld: { x: sel.x + n.x, y: sel.y + n.y } };
+        syncUI();
+        return;
+      }
+    }
+
+    if (state.tool === "pen") {
+      pushUndo();
+      if (!sel || sel.kind !== "path" || sel.closed) {
+        const newObj = { id: nextId++, name: "Custom Path", kind: "path", x: Math.round(p.x), y: Math.round(p.y), w: 40, h: 40, rot: 0, fill: "#243c5a", strokeW: 4, strokeC: "#69b7d3", closed: true, nodes: [pt(0, 0, 0)] };
+        state.objects.push(newObj);
+        state.selectedId = newObj.id;
+        state.selectedNode = 0;
+      } else {
+        sel.nodes.push(pt(Math.round(p.x - sel.x), Math.round(p.y - sel.y), 0));
+        state.selectedNode = sel.nodes.length - 1;
+        updateBoundsFromNodes(sel);
+      }
+      syncUI();
+      return;
+    }
+
+    if (state.tool === "shape" || state.tool === "ellipse") {
+      pushUndo();
+      const preset = state.tool === "ellipse" ? "ellipse" : document.getElementById("shapePresetSelect").value;
+      const nodes = preset === "polygon" ? makePolygonNodes(140, 140, 6, 8)
+                  : preset === "star" ? makeStarNodes(150, 150, 5, 0.45, 4)
+                  : preset === "ellipse" ? makePolygonNodes(140, 140, 24, 12)
+                  : makeRectNodes(140, 100, 12);
+      const o = { id: nextId++, name: preset.charAt(0).toUpperCase() + preset.slice(1), kind: "path", x: Math.round(p.x), y: Math.round(p.y), w: 140, h: 120, rot: 0, fill: "#405164", strokeW: 0, strokeC: "#ffffff", closed: true, nodes };
+      state.objects.push(o);
+      state.selectedId = o.id;
+      setTool("select");
+      syncUI();
+      return;
+    }
+
+    if (state.tool === "text") {
+      const hit = hitTest(p.x, p.y);
+      if (hit && hit.kind === "text") {
+        state.selectedId = hit.id;
+        syncUI();
+        const curT = I18N[state.lang] || I18N.en;
+        const next = prompt(curT.promptEditText || "Edit text:", hit.text || hit.name);
+        if (next !== null) { pushUndo(); hit.text = next; syncUI(); }
+        return;
+      }
+      pushUndo();
+      const o = { id: nextId++, name: "Text", kind: "text", x: Math.round(p.x), y: Math.round(p.y), w: 200, h: 42, rot: 0, fill: "#f4f6f9", strokeW: 0, strokeC: "#000000", text: "LOGO TEXT" };
+      state.objects.push(o);
+      state.selectedId = o.id;
+      setTool("select");
+      syncUI();
+      return;
+    }
+
+    if (state.tool === "image") {
+      document.getElementById("fileImage").click();
+      return;
+    }
+
+    const hit = hitTest(p.x, p.y);
+    if (hit) {
+      pushUndo();
+      state.selectedId = hit.id;
+      state.selectedNode = hit.nodes ? 0 : null;
+      drag = { kind: "move", obj: hit, sx: p.x, sy: p.y, ox: hit.x, oy: hit.y };
+      syncUI();
+    } else {
+      state.selectedId = null;
+      state.selectedNode = null;
+      syncUI();
+    }
+  });
+
+  window.addEventListener("mousemove", e => {
+    const p = toArtboard(e.clientX, e.clientY);
+    if (!drag) {
+      const curT = I18N[state.lang] || I18N.en;
+      const sel = state.objects.find(o => o.id === state.selectedId);
+      const ni = state.tool === "direct" && sel ? hitNode(sel, p.x, p.y) : -1;
+      const hit = hitTest(p.x, p.y);
+      let tip = "";
+      if (ni >= 0) {
+        tip = curT.tipPoint || "Drag to move point (Shift locks axis & aligns to points) · Double-click to toggle bevel";
+      } else if (hit) {
+        tip = hit.kind === "text" ? (curT.tipText || "Double-click to edit text")
+            : hit.kind === "image" ? (curT.tipImage || "Drag to move image layer")
+            : (curT.tipShape || "Double-click to expose points to edit");
+      }
+      if (tip && e.target === artCanvas) {
+        tooltip.style.display = "block";
+        tooltip.style.left = (e.clientX + 14) + "px";
+        tooltip.style.top = (e.clientY + 14) + "px";
+        tooltip.textContent = tip;
+      } else {
+        tooltip.style.display = "none";
+      }
+      return;
+    }
+
+    tooltip.style.display = "none";
+    if (drag.kind === "pan") {
+      state.pan.x = drag.px + (e.clientX - drag.sx);
+      state.pan.y = drag.py + (e.clientY - drag.sy);
+      render();
+    } else if (drag.kind === "move") {
+      let dx = p.x - drag.sx, dy = p.y - drag.sy;
+      if (e.shiftKey) {
+        if (Math.abs(dx) >= Math.abs(dy)) dy = 0; else dx = 0;
+      }
+      state.snapGuide = { x: null, y: null };
+      let nx = drag.ox + dx, ny = drag.oy + dy;
+      if (state.snap && !e.ctrlKey) {
+        if (Math.abs(nx - state.artboard.width / 2) <= 6) { nx = state.artboard.width / 2; state.snapGuide.x = nx; }
+        if (Math.abs(ny - state.artboard.height / 2) <= 6) { ny = state.artboard.height / 2; state.snapGuide.y = ny; }
+      }
+      drag.obj.x = Math.round(nx);
+      drag.obj.y = Math.round(ny);
+      syncUI();
+    } else if (drag.kind === "node") {
+      const rawDelta = { x: p.x - drag.startWorld.x, y: p.y - drag.startWorld.y };
+      const worldPt = snapNodePosition(drag.obj, drag.nodeIdx, drag.startWorld, rawDelta, e.shiftKey, e.ctrlKey);
+      const n = drag.obj.nodes[drag.nodeIdx];
+      n.x = Math.round(worldPt.x - drag.obj.x);
+      n.y = Math.round(worldPt.y - drag.obj.y);
+      updateBoundsFromNodes(drag.obj);
+      syncUI();
+    }
+  });
+
+  window.addEventListener("mouseup", () => {
+    drag = null;
+    state.snapGuide = { x: null, y: null };
+    render();
+  });
+
+  artCanvas.addEventListener("dblclick", e => {
+    const p = toArtboard(e.clientX, e.clientY);
+    const hit = hitTest(p.x, p.y);
+    if (!hit) return;
+    state.selectedId = hit.id;
+    const curT = I18N[state.lang] || I18N.en;
+    if (hit.kind === "text") {
+      const next = prompt(curT.promptEditText || "Edit text:", hit.text || hit.name);
+      if (next !== null) { pushUndo(); hit.text = next; syncUI(); }
+    } else if (hit.nodes) {
+      setTool("direct");
+      state.selectedNode = 0;
+      document.getElementById("statusMsg").textContent = curT.statusDirect || "Editing points · Hold Shift while dragging a point to lock axis and align to other points";
+      syncUI();
+    }
+  });
+
+  // Right-click context menu with "Add point" (appends as last point of the list)
+  const ctxMenu = document.getElementById("ctxmenu");
+  let lastCtxArtboard = { x: 256, y: 256 };
+  function hideCtxMenu() { ctxMenu.style.display = "none"; }
+  artCanvas.addEventListener("contextmenu", e => {
+    e.preventDefault();
+    lastCtxArtboard = toArtboard(e.clientX, e.clientY);
+    const hit = hitTest(lastCtxArtboard.x, lastCtxArtboard.y);
+    if (hit) state.selectedId = hit.id;
+    syncUI();
+    ctxMenu.style.display = "block";
+    ctxMenu.style.left = e.clientX + "px";
+    ctxMenu.style.top = e.clientY + "px";
+  });
+  window.addEventListener("click", hideCtxMenu);
+
+  function appendPointToSelected(atPos) {
+    const sel = state.objects.find(o => o.id === state.selectedId);
+    if (!sel || !sel.nodes) return;
+    pushUndo();
+    let nx = 24, ny = 0;
+    if (atPos) {
+      nx = Math.round(atPos.x - sel.x);
+      ny = Math.round(atPos.y - sel.y);
+    } else if (sel.nodes.length >= 2) {
+      const a = sel.nodes[sel.nodes.length - 1], b = sel.nodes[0];
+      nx = Math.round((a.x + b.x) / 2);
+      ny = Math.round((a.y + b.y) / 2);
+    }
+    sel.nodes.push(pt(nx, ny, 0));
+    state.selectedNode = sel.nodes.length - 1;
+    updateBoundsFromNodes(sel);
+    setTool("direct");
+    syncUI();
+  }
+
+  function reorderSelectedPoint(delta) {
+    const sel = state.objects.find(o => o.id === state.selectedId);
+    if (!sel || !sel.nodes || state.selectedNode === null || sel.nodes.length < 2) return;
+    pushUndo();
+    const n = sel.nodes.length;
+    const cur = state.selectedNode;
+    const next = ((cur + delta) % n + n) % n;
+    const tmp = sel.nodes[cur];
+    sel.nodes[cur] = sel.nodes[next];
+    sel.nodes[next] = tmp;
+    state.selectedNode = next;
+    syncUI();
+  }
+
+  function deleteSelectedPoint() {
+    const sel = state.objects.find(o => o.id === state.selectedId);
+    if (!sel || !sel.nodes || state.selectedNode === null) return;
+    if (sel.nodes.length <= 2) return;
+    pushUndo();
+    sel.nodes.splice(state.selectedNode, 1);
+    state.selectedNode = Math.max(0, state.selectedNode - 1);
+    updateBoundsFromNodes(sel);
+    syncUI();
+  }
+
+  document.getElementById("ctxAddPoint").onclick = () => appendPointToSelected(lastCtxArtboard);
+  document.getElementById("ctxMovePtUp").onclick = () => reorderSelectedPoint(-1);
+  document.getElementById("ctxMovePtDown").onclick = () => reorderSelectedPoint(1);
+  document.getElementById("ctxDelPoint").onclick = () => deleteSelectedPoint();
+  document.getElementById("ctxPlaceImg").onclick = () => document.getElementById("fileImage").click();
+  document.getElementById("ctxDuplicate").onclick = () => {
+    const sel = state.objects.find(o => o.id === state.selectedId);
+    if (!sel) return;
+    pushUndo();
+    const copy = JSON.parse(JSON.stringify({ ...sel, img: undefined }));
+    copy.id = nextId++;
+    copy.name = sel.name + " copy";
+    copy.x += 16; copy.y += 16;
+    if (sel.img) copy.img = sel.img;
+    state.objects.push(copy);
+    state.selectedId = copy.id;
+    syncUI();
+  };
+  document.getElementById("ctxDeleteObj").onclick = () => {
+    if (!state.selectedId) return;
+    pushUndo();
+    state.objects = state.objects.filter(o => o.id !== state.selectedId);
+    state.selectedId = state.objects[0]?.id || null;
+    syncUI();
+  };
+
+  function setTool(t) {
+    state.tool = t;
+    document.querySelectorAll(".tool-btn").forEach(b => b.classList.toggle("active", b.dataset.tool === t));
+    render();
+  }
+  document.querySelectorAll(".tool-btn").forEach(b => b.onclick = () => setTool(b.dataset.tool));
+
+  // Regular image layer import (like Photoshop: added as an Image layer, movable without path conversion)
+  document.getElementById("btnPlaceImg").onclick = () => document.getElementById("fileImage").click();
+  document.getElementById("fileImage").onchange = e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const img = new Image();
+      img.onload = () => {
+        pushUndo();
+        const scale = Math.min(1, 360 / Math.max(img.width, img.height));
+        const o = {
+          id: nextId++,
+          name: file.name.replace(/\.[^.]+$/, ""),
+          kind: "image",
+          x: 256, y: 256,
+          w: Math.round(img.width * scale),
+          h: Math.round(img.height * scale),
+          rot: 0,
+          img,
+          dataUrl: ev.target.result
+        };
+        state.objects.push(o);
+        state.selectedId = o.id;
+        setTool("select");
+        syncUI();
+      };
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  };
+
+  function syncUI() {
+    const curT = I18N[state.lang] || I18N.en;
+    const layersEl = document.getElementById("layers-list");
+    layersEl.innerHTML = "";
+    [...state.objects].reverse().forEach(o => {
+      const row = document.createElement("div");
+      row.className = "layer-row" + (o.id === state.selectedId ? " selected" : "");
+      const badge = o.kind === "image" ? (curT.badgeImage || "Image") : o.kind === "text" ? (curT.badgeText || "Text") : (curT.badgePath || "Path");
+      row.innerHTML = `<span>${o.name}</span><span style="color:var(--muted);font-size:10px;">${badge}</span>`;
+      row.onclick = () => { state.selectedId = o.id; state.selectedNode = o.nodes ? 0 : null; syncUI(); };
+      layersEl.appendChild(row);
+    });
+
+    const sel = state.objects.find(o => o.id === state.selectedId);
+    document.getElementById("inpName").value = sel ? sel.name : "";
+    document.getElementById("inpX").value = sel ? sel.x : 0;
+    document.getElementById("inpY").value = sel ? sel.y : 0;
+    document.getElementById("inpW").value = sel ? sel.w : 0;
+    document.getElementById("inpH").value = sel ? sel.h : 0;
+    document.getElementById("inpRot").value = sel ? (sel.rot || 0) : 0;
+    if (sel && sel.fill) document.getElementById("inpFill").value = sel.fill;
+    document.getElementById("inpStrokeW").value = sel ? (sel.strokeW || 0) : 0;
+    if (sel && sel.strokeC) document.getElementById("inpStrokeC").value = sel.strokeC;
+    document.getElementById("rowText").style.display = sel && sel.kind === "text" ? "grid" : "none";
+    if (sel && sel.kind === "text") document.getElementById("inpText").value = sel.text || "";
+
+    const ptsEl = document.getElementById("points-list");
+    ptsEl.innerHTML = "";
+    if (sel && sel.nodes) {
+      sel.nodes.forEach((n, idx) => {
+        const row = document.createElement("div");
+        row.className = "point-row" + (idx === state.selectedNode ? " selected" : "");
+        const cornerText = n.radius > 0 ? (curT.bevelPrefix || "Bevel ") + n.radius : (curT.cornerBadge || "Corner");
+        row.innerHTML = `<span>#${idx + 1} (${n.x}, ${n.y})</span><span style="color:var(--muted);font-size:10px;">${cornerText}</span>`;
+        row.onclick = () => { state.selectedNode = idx; setTool("direct"); syncUI(); };
+        ptsEl.appendChild(row);
+      });
+      const activePt = sel.nodes[state.selectedNode ?? 0];
+      if (activePt) {
+        document.getElementById("inpPtX").value = activePt.x;
+        document.getElementById("inpPtY").value = activePt.y;
+        document.getElementById("inpPtBevel").value = activePt.radius || 0;
+        document.getElementById("inpPtStyle").value = activePt.style || "round";
+      }
+    }
+    render();
+  }
+
+  // Inspector bindings
+  const bind = (id, fn) => document.getElementById(id).addEventListener("input", e => {
+    const sel = state.objects.find(o => o.id === state.selectedId);
+    if (sel) { fn(sel, e.target.value); syncUI(); }
+  });
+  bind("inpName", (o, v) => o.name = v);
+  bind("inpX", (o, v) => o.x = Number(v));
+  bind("inpY", (o, v) => o.y = Number(v));
+  bind("inpW", (o, v) => {
+    const nw = Math.max(4, Number(v));
+    if (o.nodes && o.w > 0) { const s = nw / o.w; o.nodes.forEach(n => n.x = Math.round(n.x * s)); }
+    o.w = nw;
+  });
+  bind("inpH", (o, v) => {
+    const nh = Math.max(4, Number(v));
+    if (o.nodes && o.h > 0) { const s = nh / o.h; o.nodes.forEach(n => n.y = Math.round(n.y * s)); }
+    o.h = nh;
+  });
+  bind("inpRot", (o, v) => o.rot = Number(v));
+  bind("inpFill", (o, v) => o.fill = v);
+  bind("inpStrokeW", (o, v) => o.strokeW = Math.max(0, Number(v)));
+  bind("inpStrokeC", (o, v) => o.strokeC = v);
+  bind("inpText", (o, v) => o.text = v);
+  bind("inpPtX", (o, v) => { if (o.nodes && o.nodes[state.selectedNode ?? 0]) { o.nodes[state.selectedNode ?? 0].x = Number(v); updateBoundsFromNodes(o); } });
+  bind("inpPtY", (o, v) => { if (o.nodes && o.nodes[state.selectedNode ?? 0]) { o.nodes[state.selectedNode ?? 0].y = Number(v); updateBoundsFromNodes(o); } });
+  bind("inpPtBevel", (o, v) => { if (o.nodes && o.nodes[state.selectedNode ?? 0]) o.nodes[state.selectedNode ?? 0].radius = Math.max(0, Number(v)); });
+  bind("inpPtStyle", (o, v) => { if (o.nodes && o.nodes[state.selectedNode ?? 0]) o.nodes[state.selectedNode ?? 0].style = v; });
+
+  document.getElementById("btnPtAdd").onclick = () => appendPointToSelected();
+  document.getElementById("btnAddPointTop").onclick = () => appendPointToSelected();
+  document.getElementById("btnPtUp").onclick = () => reorderSelectedPoint(-1);
+  document.getElementById("btnPtDown").onclick = () => reorderSelectedPoint(1);
+  document.getElementById("btnPtDel").onclick = () => deleteSelectedPoint();
+  document.getElementById("btnConvertPath").onclick = () => { setTool("direct"); state.selectedNode = 0; syncUI(); };
+  document.getElementById("btnAlignCenter").onclick = () => {
+    const sel = state.objects.find(o => o.id === state.selectedId);
+    if (sel) { pushUndo(); sel.x = state.artboard.width / 2; sel.y = state.artboard.height / 2; syncUI(); }
+  };
+  document.getElementById("chkSnap").onchange = e => state.snap = e.target.checked;
+  document.getElementById("btnUndo").onclick = () => {
+    if (!state.history.length) return;
+    state.objects = JSON.parse(state.history.pop());
+    state.selectedId = state.objects[0]?.id || null;
+    syncUI();
+  };
+  document.getElementById("btnNew").onclick = () => { pushUndo(); state.objects = []; state.selectedId = null; syncUI(); };
+  document.getElementById("btnTemplate").onclick = () => loadTemplate("bastion");
+  document.querySelectorAll("[data-tpl]").forEach(b => b.onclick = () => loadTemplate(b.dataset.tpl));
+
+  document.getElementById("btnLayerUp").onclick = () => {
+    const idx = state.objects.findIndex(o => o.id === state.selectedId);
+    if (idx >= 0 && idx < state.objects.length - 1) {
+      pushUndo();
+      const tmp = state.objects[idx]; state.objects[idx] = state.objects[idx + 1]; state.objects[idx + 1] = tmp;
+      syncUI();
+    }
+  };
+  document.getElementById("btnLayerDown").onclick = () => {
+    const idx = state.objects.findIndex(o => o.id === state.selectedId);
+    if (idx > 0) {
+      pushUndo();
+      const tmp = state.objects[idx]; state.objects[idx] = state.objects[idx - 1]; state.objects[idx - 1] = tmp;
+      syncUI();
+    }
+  };
+  document.getElementById("btnLayerDel").onclick = () => document.getElementById("ctxDeleteObj").onclick();
+
+  function fitArtboard() {
+    const rect = artCanvas.parentElement.getBoundingClientRect();
+    state.zoom = Math.min((rect.width - 80) / state.artboard.width, (rect.height - 80) / state.artboard.height);
+    state.pan.x = (rect.width - state.artboard.width * state.zoom) / 2;
+    state.pan.y = (rect.height - state.artboard.height * state.zoom) / 2;
+    render();
+  }
+  document.getElementById("btnFit").onclick = fitArtboard;
+  window.addEventListener("resize", fitArtboard);
+
+  // Export PNG
+  document.getElementById("btnExportPng").onclick = () => {
+    const out = document.createElement("canvas");
+    out.width = state.artboard.width;
+    out.height = state.artboard.height;
+    const octx = out.getContext("2d");
+    renderArtworkToContext(octx, out.width, out.height, 1, 1);
+    const a = document.createElement("a");
+    a.download = "kantan-logo.png";
+    a.href = out.toDataURL("image/png");
+    a.click();
+  };
+
+  function escapeXml(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
+  }
+  function nodesToSvgD(nodes, closed) {
+    if (!nodes || !nodes.length) return "";
+    let d = "";
+    const len = nodes.length;
+    for (let i = 0; i < len; i++) {
+      const prev = nodes[(i - 1 + len) % len];
+      const cur = nodes[i];
+      const next = nodes[(i + 1) % len];
+      const r = Math.max(0, cur.radius || 0);
+      if (r > 0 && (closed || (i > 0 && i < len - 1))) {
+        const vx1 = prev.x - cur.x, vy1 = prev.y - cur.y;
+        const vx2 = next.x - cur.x, vy2 = next.y - cur.y;
+        const l1 = Math.hypot(vx1, vy1), l2 = Math.hypot(vx2, vy2);
+        const clampR = Math.min(r, l1 * 0.48, l2 * 0.48);
+        const p1x = cur.x + (vx1 / (l1 || 1)) * clampR;
+        const p1y = cur.y + (vy1 / (l1 || 1)) * clampR;
+        const p2x = cur.x + (vx2 / (l2 || 1)) * clampR;
+        const p2y = cur.y + (vy2 / (l2 || 1)) * clampR;
+        if (i === 0) d += `M ${p1x.toFixed(2)} ${p1y.toFixed(2)} `;
+        else d += `L ${p1x.toFixed(2)} ${p1y.toFixed(2)} `;
+        if (cur.style === "chamfer") {
+          d += `L ${p2x.toFixed(2)} ${p2y.toFixed(2)} `;
+        } else if (cur.style === "inverted") {
+          const mx = (p1x + p2x) - cur.x, my = (p1y + p2y) - cur.y;
+          d += `Q ${mx.toFixed(2)} ${my.toFixed(2)} ${p2x.toFixed(2)} ${p2y.toFixed(2)} `;
+        } else {
+          d += `Q ${cur.x.toFixed(2)} ${cur.y.toFixed(2)} ${p2x.toFixed(2)} ${p2y.toFixed(2)} `;
+        }
+      } else {
+        if (i === 0) d += `M ${cur.x.toFixed(2)} ${cur.y.toFixed(2)} `;
+        else d += `L ${cur.x.toFixed(2)} ${cur.y.toFixed(2)} `;
+      }
+    }
+    if (closed) d += "Z";
+    return d.trim();
+  }
+
+  // Export SVG
+  document.getElementById("btnExportSvg").onclick = () => {
+    let svg = `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 ${state.artboard.width} ${state.artboard.height}" width="${state.artboard.width}" height="${state.artboard.height}">\n`;
+    if (!state.artboard.transparent) {
+      svg += `  <rect x="0" y="0" width="${state.artboard.width}" height="${state.artboard.height}" fill="${state.artboard.bg}"/>\n`;
+    }
+    for (const o of state.objects) {
+      const tr = `transform="translate(${o.x} ${o.y}) rotate(${o.rot || 0})"`;
+      if (o.kind === "image" && (o.dataUrl || (o.img && o.img.src))) {
+        const href = o.dataUrl || o.img.src;
+        svg += `  <image ${tr} x="${(-o.w/2).toFixed(2)}" y="${(-o.h/2).toFixed(2)}" width="${o.w}" height="${o.h}" href="${href}"/>\n`;
+      } else if (o.kind === "text") {
+        const fill = o.fill || "#ffffff";
+        const fs = Math.max(14, o.h || 36);
+        svg += `  <text ${tr} x="0" y="0" fill="${fill}" font-family="Bahnschrift, 'Segoe UI', sans-serif" font-weight="700" font-size="${fs}" text-anchor="middle" dominant-baseline="central">${escapeXml(o.text || o.name)}</text>\n`;
+      } else if (o.nodes) {
+        const d = nodesToSvgD(o.nodes, o.closed !== false);
+        const fill = (o.fill && o.closed !== false) ? o.fill : "none";
+        const stroke = (o.strokeW > 0) ? `stroke="${o.strokeC || '#ffffff'}" stroke-width="${o.strokeW}" stroke-linejoin="round"` : `stroke="none"`;
+        svg += `  <path ${tr} d="${d}" fill="${fill}" ${stroke}/>\n`;
+      }
+    }
+    svg += "</svg>\n";
+    const blob = new Blob([svg], { type: "image/svg+xml;charset=utf-8" });
+    const a = document.createElement("a");
+    a.download = "kantan-logo.svg";
+    a.href = URL.createObjectURL(blob);
+    a.click();
+  };
+
+  // Save / Load JSON project
+  document.getElementById("btnSaveJson").onclick = () => {
+    const payload = JSON.stringify({ version: VERSION, artboard: state.artboard, objects: state.objects.map(o => ({ ...o, img: undefined })) }, null, 2);
+    const blob = new Blob([payload], { type: "application/json" });
+    const a = document.createElement("a");
+    a.download = "project.kantanlogo.json";
+    a.href = URL.createObjectURL(blob);
+    a.click();
+  };
+  document.getElementById("btnLoadJson").onclick = () => document.getElementById("fileLoadJson").click();
+  document.getElementById("fileLoadJson").onchange = e => {
+    const f = e.target.files[0];
+    if (!f) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      try {
+        const data = JSON.parse(ev.target.result);
+        if (Array.isArray(data.objects)) {
+          state.objects = data.objects;
+          state.selectedId = state.objects[0]?.id || null;
+          syncUI();
+        }
+      } catch {}
+    };
+    reader.readAsText(f);
+  };
+
+  // About modal
+  const aboutModal = document.getElementById("aboutModal");
+  document.getElementById("btnAbout").onclick = () => aboutModal.style.display = "flex";
+  document.getElementById("btnCloseAbout").onclick = () => aboutModal.style.display = "none";
+
+  // Multi-language localization (English, Chinese Traditional, Chinese Simplified, Japanese, Spanish)
+  const I18N = {
+    en: {
+      brand: "Kantan Logo Maker",
+      btnNew: "New",
+      btnTemplate: "Starter Templates…",
+      btnPlaceImg: "Place Image…",
+      btnSaveJson: "Save (.kantanlogo.json)",
+      btnLoadJson: "Open…",
+      btnExportPng: "Export PNG",
+      btnExportSvg: "Export SVG",
+      btnUndo: "Undo",
+      lblSnap: "Snap & Align",
+      btnAbout: "About Kantan Logo Maker",
+      lblPreset: "Preset:",
+      presets: { rect: "Rectangle", polygon: "Polygon", star: "Star", shield: "Bastion Shield", tower: "Citadel Tower" },
+      btnConvertPath: "Edit points (Convert to path)",
+      btnAddPointTop: "Add point",
+      btnAlignCenter: "Centre on Canvas",
+      btnFit: "Fit Artboard",
+      lblTip: "Tip: Double-click any shape to expose points · Hold Shift while dragging a point to lock axis & align to other points",
+      tools: { select: "Select (V)", direct: "Direct select / Points (A)", pen: "Pen (P)", shape: "Shape (R)", ellipse: "Ellipse (E)", text: "Text (T)", image: "Place image (I)" },
+      lblSizePreview: "Size preview",
+      lblLayersDock: "Layers",
+      btnLayerUp: "Bring forward",
+      btnLayerDown: "Send backward",
+      btnLayerDel: "Delete layer",
+      lblInspectorDock: "Inspector — Transform & Style",
+      lblFormName: "Name",
+      lblFormPos: "Position (X, Y)",
+      lblFormSize: "Size (W, H)",
+      lblFormRot: "Rotation (°)",
+      lblFormFill: "Fill Colour",
+      lblFormStrokeW: "Outline Width",
+      lblFormStrokeC: "Outline Colour",
+      lblFormText: "Text",
+      lblPointDock: "Point List & Bevel",
+      btnPtAdd: "Add point at end of list",
+      btnPtUp: "Move point up in list",
+      btnPtDown: "Move point down in list",
+      btnPtDel: "Delete selected point",
+      lblFormPtPos: "Point (X, Y)",
+      lblFormPtBevel: "Bevel / Radius",
+      lblFormPtStyle: "Bevel Style",
+      bevelStyles: { round: "Round", chamfer: "Chamfer", inverted: "Inverted" },
+      lblTemplatesDock: "Starter Templates",
+      ctxAddPoint: "Add point (at end of list)",
+      ctxMovePtUp: "Move point up",
+      ctxMovePtDown: "Move point down",
+      ctxDelPoint: "Delete point",
+      ctxPlaceImg: "Place image…",
+      ctxDuplicate: "Duplicate layer",
+      ctxDeleteObj: "Delete layer",
+      tipPoint: "Drag to move point (Shift locks axis & aligns to points) · Double-click to toggle bevel",
+      tipText: "Double-click to edit text",
+      tipImage: "Drag to move image layer",
+      tipShape: "Double-click to expose points to edit",
+      promptEditText: "Edit text:",
+      statusDirect: "Editing points · Hold Shift while dragging a point to lock axis and align to other points",
+      badgeImage: "Image",
+      badgeText: "Text",
+      badgePath: "Path",
+      bevelPrefix: "Bevel ",
+      cornerBadge: "Corner",
+      statusMsg: "Ready · Double-click any shape to expose points to edit",
+      aboutTitle: "About Kantan Logo Maker",
+      aboutBody: `<p><strong>Kantan Logo Maker ${VERSION}</strong><br/>A small, fast logo and icon maker.<br/><strong>Produced by Kingdom Pots using Claude Opus, GPT 6.1 Sol and Google Gemini 4</strong></p><p><strong>Frameworks &amp; Open-Source Libraries:</strong></p><ul><li><strong>Qt 6 (LGPL)</strong> — Cross-platform desktop user interface, windowing and graphics framework.</li><li><strong>Clipper2 (BSL-1.0)</strong> — 2D polygon geometry library used for boolean shape operations (Union, Subtract, Intersect, Exclude) and path offsetting/outlines.</li><li><strong>nanosvg (zlib)</strong> — Lightweight SVG parser used to import vector graphics and symbol presets.</li><li><strong>Miniz (MIT)</strong> — Fast lossless data compression and ZIP archive library used to save and load <code>.kantanlogo</code> project files.</li><li><strong>Fluent System Icons (MIT)</strong> — Microsoft's open-source icon set used for the toolbar and interface icons.</li></ul><p style="color:var(--muted);font-size:11px;">See the notices folder for full licence texts.</p>`
+    },
+    zh_TW: {
+      brand: "簡單 Logo Maker",
+      btnNew: "新增",
+      btnTemplate: "範本…",
+      btnPlaceImg: "置入圖片…",
+      btnSaveJson: "儲存 (.kantanlogo.json)",
+      btnLoadJson: "開啟…",
+      btnExportPng: "匯出 PNG",
+      btnExportSvg: "匯出 SVG",
+      btnUndo: "復原",
+      lblSnap: "貼齊與對齊",
+      btnAbout: "關於 簡單 Logo Maker",
+      lblPreset: "預設：",
+      presets: { rect: "矩形", polygon: "多邊形", star: "星形", shield: "堡壘盾牌", tower: "要塞高塔" },
+      btnConvertPath: "編輯節點（轉換為路徑）",
+      btnAddPointTop: "新增節點",
+      btnAlignCenter: "置中於畫布",
+      btnFit: "符合畫板大小",
+      lblTip: "提示：連按兩下形狀即可顯示節點 · 拖曳節點時按住 Shift 可鎖定軸向並與其他節點對齊",
+      tools: { select: "選取 (V)", direct: "直接選取 / 節點 (A)", pen: "鋼筆 (P)", shape: "形狀 (R)", ellipse: "橢圓 (E)", text: "文字 (T)", image: "置入圖片 (I)" },
+      lblSizePreview: "尺寸預覽",
+      lblLayersDock: "圖層",
+      btnLayerUp: "往前移動一層",
+      btnLayerDown: "往後移動一層",
+      btnLayerDel: "刪除圖層",
+      lblInspectorDock: "屬性檢視器 — 變形與樣式",
+      lblFormName: "名稱",
+      lblFormPos: "位置 (X, Y)",
+      lblFormSize: "尺寸 (寬, 高)",
+      lblFormRot: "旋轉 (°)",
+      lblFormFill: "填色",
+      lblFormStrokeW: "外框粗細",
+      lblFormStrokeC: "外框顏色",
+      lblFormText: "文字",
+      lblPointDock: "節點清單與斜角",
+      btnPtAdd: "於清單尾端新增節點",
+      btnPtUp: "在清單中上移",
+      btnPtDown: "在清單中下移",
+      btnPtDel: "刪除選取的節點",
+      lblFormPtPos: "節點 (X, Y)",
+      lblFormPtBevel: "斜角 / 半徑",
+      lblFormPtStyle: "斜角樣式",
+      bevelStyles: { round: "圓角", chamfer: "倒角", inverted: "內凹" },
+      lblTemplatesDock: "範本",
+      ctxAddPoint: "新增節點（於清單末端）",
+      ctxMovePtUp: "節點上移",
+      ctxMovePtDown: "節點下移",
+      ctxDelPoint: "刪除節點",
+      ctxPlaceImg: "置入圖片…",
+      ctxDuplicate: "重製圖層",
+      ctxDeleteObj: "刪除圖層",
+      tipPoint: "拖曳以移動節點（Shift 鎖定軸向並對齊節點）· 連按兩下切換斜角",
+      tipText: "連按兩下編輯文字",
+      tipImage: "拖曳以移動圖片圖層",
+      tipShape: "連按兩下顯示節點以進行編輯",
+      promptEditText: "編輯文字：",
+      statusDirect: "編輯節點中 · 拖曳節點時按住 Shift 可鎖定軸向並與其他節點對齊",
+      badgeImage: "圖片",
+      badgeText: "文字",
+      badgePath: "路徑",
+      bevelPrefix: "斜角 ",
+      cornerBadge: "角點",
+      statusMsg: "就緒 · 連按兩下形狀即可顯示節點進行編輯",
+      aboutTitle: "關於 簡單 Logo Maker",
+      aboutBody: `<p><strong>簡單 Logo Maker ${VERSION}</strong><br/>輕巧快速的標誌與圖示製作工具。<br/><strong>由 Kingdom Pots 使用 Claude Opus、GPT 6.1 Sol 與 Google Gemini 4 製作</strong></p><p><strong>框架與開源程式庫：</strong></p><ul><li><strong>Qt 6 (LGPL)</strong> — 跨平台桌面使用者介面、視窗與圖形框架。</li><li><strong>Clipper2 (BSL-1.0)</strong> — 用於布林形狀運算（聯集、減去、交集、排除）及路徑偏移／外框的 2D 多邊形幾何程式庫。</li><li><strong>nanosvg (zlib)</strong> — 用於匯入向量圖形與符號預設集的輕量級 SVG 解析器。</li><li><strong>Miniz (MIT)</strong> — 用於儲存與載入 <code>.kantanlogo</code> 專案檔的快速無損資料壓縮與 ZIP 封存程式庫。</li><li><strong>Fluent System Icons (MIT)</strong> — 用於工具列與介面圖示的 Microsoft 開源圖示集。</li></ul><p style="color:var(--muted);font-size:11px;">完整授權條款請參閱 notices 資料夾。</p>`
+    },
+    zh_CN: {
+      brand: "简单 Logo Maker",
+      btnNew: "新建",
+      btnTemplate: "模板…",
+      btnPlaceImg: "置入图片…",
+      btnSaveJson: "保存 (.kantanlogo.json)",
+      btnLoadJson: "打开…",
+      btnExportPng: "导出 PNG",
+      btnExportSvg: "导出 SVG",
+      btnUndo: "撤销",
+      lblSnap: "吸附与对齐",
+      btnAbout: "关于 简单 Logo Maker",
+      lblPreset: "预设：",
+      presets: { rect: "矩形", polygon: "多边形", star: "星形", shield: "堡垒盾牌", tower: "要塞高塔" },
+      btnConvertPath: "编辑节点（转换为路径）",
+      btnAddPointTop: "添加节点",
+      btnAlignCenter: "画布居中",
+      btnFit: "适应画板",
+      lblTip: "提示：双击形状即可显示节点 · 拖曳节点时按住 Shift 可锁定轴向并与其他节点对齐",
+      tools: { select: "选择 (V)", direct: "直接选择 / 节点 (A)", pen: "钢笔 (P)", shape: "形状 (R)", ellipse: "椭圆 (E)", text: "文本 (T)", image: "置入图片 (I)" },
+      lblSizePreview: "尺寸预览",
+      lblLayersDock: "图层",
+      btnLayerUp: "上移一层",
+      btnLayerDown: "下移一层",
+      btnLayerDel: "删除图层",
+      lblInspectorDock: "属性检查器 — 变换与样式",
+      lblFormName: "名称",
+      lblFormPos: "位置 (X, Y)",
+      lblFormSize: "尺寸 (宽, 高)",
+      lblFormRot: "旋转 (°)",
+      lblFormFill: "填充",
+      lblFormStrokeW: "描边粗细",
+      lblFormStrokeC: "描边颜色",
+      lblFormText: "文本",
+      lblPointDock: "节点列表与倒角",
+      btnPtAdd: "在列表末尾添加节点",
+      btnPtUp: "在列表中上移",
+      btnPtDown: "在列表中下移",
+      btnPtDel: "删除选中的节点",
+      lblFormPtPos: "节点 (X, Y)",
+      lblFormPtBevel: "倒角 / 半径",
+      lblFormPtStyle: "倒角样式",
+      bevelStyles: { round: "圆角", chamfer: "倒角", inverted: "凹角" },
+      lblTemplatesDock: "模板",
+      ctxAddPoint: "添加节点（于列表末尾）",
+      ctxMovePtUp: "节点上移",
+      ctxMovePtDown: "节点下移",
+      ctxDelPoint: "删除节点",
+      ctxPlaceImg: "置入图片…",
+      ctxDuplicate: "复制图层",
+      ctxDeleteObj: "删除图层",
+      tipPoint: "拖动以移动节点（Shift 锁定轴向并对齐节点）· 双击切换倒角",
+      tipText: "双击编辑文本",
+      tipImage: "拖动以移动图片图层",
+      tipShape: "双击显示节点以进行编辑",
+      promptEditText: "编辑文本：",
+      statusDirect: "编辑节点中 · 拖动节点时按住 Shift 可锁定轴向并与其他节点对齐",
+      badgeImage: "图片",
+      badgeText: "文本",
+      badgePath: "路径",
+      bevelPrefix: "倒角 ",
+      cornerBadge: "角点",
+      statusMsg: "就绪 · 双击形状即可显示节点进行编辑",
+      aboutTitle: "关于 简单 Logo Maker",
+      aboutBody: `<p><strong>简单 Logo Maker ${VERSION}</strong><br/>轻巧快速的标志与图标制作工具。<br/><strong>由 Kingdom Pots 使用 Claude Opus、GPT 6.1 Sol 和 Google Gemini 4 制作</strong></p><p><strong>框架与开源库：</strong></p><ul><li><strong>Qt 6 (LGPL)</strong> — 跨平台桌面用户界面、窗口与图形框架。</li><li><strong>Clipper2 (BSL-1.0)</strong> — 用于布尔形状运算（合并、减去、相交、排除）及路径偏移／描边的 2D 多边形几何库。</li><li><strong>nanosvg (zlib)</strong> — 用于导入矢量图形与符号预设的轻量级 SVG 解析器。</li><li><strong>Miniz (MIT)</strong> — 用于保存与加载 <code>.kantanlogo</code> 项目文件的快速无损数据压缩与 ZIP 归档库。</li><li><strong>Fluent System Icons (MIT)</strong> — 用于工具栏与界面图标的 Microsoft 开源图标集。</li></ul><p style="color:var(--muted);font-size:11px;">完整许可证文本请参阅 notices 文件夹。</p>`
+    },
+    ja: {
+      brand: "簡単 Logo Maker",
+      btnNew: "新規",
+      btnTemplate: "テンプレート…",
+      btnPlaceImg: "画像を配置…",
+      btnSaveJson: "保存 (.kantanlogo.json)",
+      btnLoadJson: "開く…",
+      btnExportPng: "PNG 書き出し",
+      btnExportSvg: "SVG 書き出し",
+      btnUndo: "元に戻す",
+      lblSnap: "スナップと整列",
+      btnAbout: "簡単 Logo Maker について",
+      lblPreset: "プリセット：",
+      presets: { rect: "長方形", polygon: "多角形", star: "星形", shield: "バスティオンの盾", tower: "要塞の塔" },
+      btnConvertPath: "ポイントを編集（パスに変換）",
+      btnAddPointTop: "ポイントを追加",
+      btnAlignCenter: "キャンバス中央に配置",
+      btnFit: "アートボードに合わせる",
+      lblTip: "ヒント：図形をダブルクリックするとポイントが表示されます · Shift を押しながらドラッグすると軸がロックされ他のポイントに吸着します",
+      tools: { select: "選択 (V)", direct: "ダイレクト選択 / ポイント (A)", pen: "ペン (P)", shape: "シェイプ (R)", ellipse: "楕円 (E)", text: "テキスト (T)", image: "画像を配置 (I)" },
+      lblSizePreview: "サイズプレビュー",
+      lblLayersDock: "レイヤー",
+      btnLayerUp: "前面へ",
+      btnLayerDown: "背面へ",
+      btnLayerDel: "レイヤーを削除",
+      lblInspectorDock: "インスペクター — 変形とスタイル",
+      lblFormName: "名前",
+      lblFormPos: "位置 (X, Y)",
+      lblFormSize: "サイズ (幅, 高さ)",
+      lblFormRot: "回転 (°)",
+      lblFormFill: "塗り",
+      lblFormStrokeW: "線幅",
+      lblFormStrokeC: "線の色",
+      lblFormText: "テキスト",
+      lblPointDock: "ポイント一覧とベベル",
+      btnPtAdd: "末尾にポイントを追加",
+      btnPtUp: "一覧で上へ移動",
+      btnPtDown: "一覧で下へ移動",
+      btnPtDel: "選択したポイントを削除",
+      lblFormPtPos: "ポイント (X, Y)",
+      lblFormPtBevel: "ベベル / 半径",
+      lblFormPtStyle: "ベベルスタイル",
+      bevelStyles: { round: "ラウンド (丸)", chamfer: "面取り", inverted: "内反り" },
+      lblTemplatesDock: "スターターテンプレート",
+      ctxAddPoint: "ポイントを追加（末尾）",
+      ctxMovePtUp: "ポイントを上へ移動",
+      ctxMovePtDown: "ポイントを下へ移動",
+      ctxDelPoint: "ポイントを削除",
+      ctxPlaceImg: "画像を配置…",
+      ctxDuplicate: "レイヤーを複製",
+      ctxDeleteObj: "レイヤーを削除",
+      tipPoint: "ドラッグでポイント移動（Shift で軸ロック＆他ポイントに整列）· ダブルクリックでベベル切替",
+      tipText: "ダブルクリックでテキスト編集",
+      tipImage: "ドラッグで画像レイヤーを移動",
+      tipShape: "ダブルクリックでポイントを編集",
+      promptEditText: "テキストを編集：",
+      statusDirect: "ポイント編集モード · Shift を押しながらドラッグで軸ロック＆ポイント整列",
+      badgeImage: "画像",
+      badgeText: "テキスト",
+      badgePath: "パス",
+      bevelPrefix: "ベベル ",
+      cornerBadge: "コーナー",
+      statusMsg: "準備完了 · 図形をダブルクリックするとポイントを編集できます",
+      aboutTitle: "簡単 Logo Maker について",
+      aboutBody: `<p><strong>簡単 Logo Maker ${VERSION}</strong><br/>軽量で高速なロゴ・アイコン作成ツール。<br/><strong>Kingdom Pots が Claude Opus、GPT 6.1 Sol、Google Gemini 4 を使用して制作</strong></p><p><strong>フレームワークおよびオープンソースライブラリ：</strong></p><ul><li><strong>Qt 6 (LGPL)</strong> — クロスプラットフォームのデスクトップ UI、ウィンドウ、グラフィックスフレームワーク。</li><li><strong>Clipper2 (BSL-1.0)</strong> — ブーリアン図形演算（合体、型抜き、交差、中マド）およびパスオフセット／アウトラインに使用される 2D ポリゴン幾何ライブラリ。</li><li><strong>nanosvg (zlib)</strong> — ベクターグラフィックスやシンボルプリセットの読み込みに使用される軽量 SVG パーサー。</li><li><strong>Miniz (MIT)</strong> — <code>.kantanlogo</code> プロジェクトファイルの保存・読み込みに使用される高速ロスレスデータ圧縮・ZIP アーカイブライブラリ。</li><li><strong>Fluent System Icons (MIT)</strong> — ツールバーやインターフェースのアイコンに使用されている Microsoft のオープンソースアイコンセット。</li></ul><p style="color:var(--muted);font-size:11px;">ライセンス全文については notices フォルダをご覧ください。</p>`
+    },
+    es_ES: {
+      brand: "Kantan Logo Maker",
+      btnNew: "Nuevo",
+      btnTemplate: "Plantillas…",
+      btnPlaceImg: "Colocar imagen…",
+      btnSaveJson: "Guardar (.kantanlogo.json)",
+      btnLoadJson: "Abrir…",
+      btnExportPng: "Exportar PNG",
+      btnExportSvg: "Exportar SVG",
+      btnUndo: "Deshacer",
+      lblSnap: "Ajustar y alinear",
+      btnAbout: "Acerca de Kantan Logo Maker",
+      lblPreset: "Ajuste:",
+      presets: { rect: "Rectángulo", polygon: "Polígono", star: "Estrella", shield: "Escudo bastión", tower: "Torre ciudadela" },
+      btnConvertPath: "Editar puntos (Convertir en trazado)",
+      btnAddPointTop: "Añadir punto",
+      btnAlignCenter: "Centrar en el lienzo",
+      btnFit: "Ajustar a la mesa de trabajo",
+      lblTip: "Consejo: Haz doble clic en una forma para editar puntos · Mantén Shift para bloquear el eje y alinear a otros puntos",
+      tools: { select: "Selección (V)", direct: "Selección directa / Puntos (A)", pen: "Pluma (P)", shape: "Forma (R)", ellipse: "Elipse (E)", text: "Texto (T)", image: "Colocar imagen (I)" },
+      lblSizePreview: "Vista previa",
+      lblLayersDock: "Capas",
+      btnLayerUp: "Traer hacia adelante",
+      btnLayerDown: "Enviar hacia atrás",
+      btnLayerDel: "Eliminar capa",
+      lblInspectorDock: "Inspector — Transformación y estilo",
+      lblFormName: "Nombre",
+      lblFormPos: "Posición (X, Y)",
+      lblFormSize: "Tamaño (An, Al)",
+      lblFormRot: "Rotación (°)",
+      lblFormFill: "Color de relleno",
+      lblFormStrokeW: "Grosor de trazo",
+      lblFormStrokeC: "Color de trazo",
+      lblFormText: "Texto",
+      lblPointDock: "Lista de puntos y bisel",
+      btnPtAdd: "Añadir punto al final de la lista",
+      btnPtUp: "Subir punto en la lista",
+      btnPtDown: "Bajar punto en la lista",
+      btnPtDel: "Eliminar punto seleccionado",
+      lblFormPtPos: "Punto (X, Y)",
+      lblFormPtBevel: "Bisel / Radio",
+      lblFormPtStyle: "Estilo de bisel",
+      bevelStyles: { round: "Redondo", chamfer: "Chaflán", inverted: "Invertido" },
+      lblTemplatesDock: "Plantillas iniciales",
+      ctxAddPoint: "Añadir punto (al final de la lista)",
+      ctxMovePtUp: "Subir punto",
+      ctxMovePtDown: "Bajar punto",
+      ctxDelPoint: "Eliminar punto",
+      ctxPlaceImg: "Colocar imagen…",
+      ctxDuplicate: "Duplicar capa",
+      ctxDeleteObj: "Eliminar capa",
+      tipPoint: "Arrastra para mover el punto (Shift bloquea eje y alinea a puntos) · Doble clic para cambiar bisel",
+      tipText: "Doble clic para editar texto",
+      tipImage: "Arrastra para mover la capa de imagen",
+      tipShape: "Doble clic para mostrar y editar puntos",
+      promptEditText: "Editar texto:",
+      statusDirect: "Editando puntos · Mantén Shift para bloquear el eje y alinear a otros puntos",
+      badgeImage: "Imagen",
+      badgeText: "Texto",
+      badgePath: "Trazado",
+      bevelPrefix: "Bisel ",
+      cornerBadge: "Esquina",
+      statusMsg: "Listo · Haz doble clic en cualquier forma para mostrar y editar sus puntos",
+      aboutTitle: "Acerca de Kantan Logo Maker",
+      aboutBody: `<p><strong>Kantan Logo Maker ${VERSION}</strong><br/>Un creador de logotipos e iconos pequeño y rápido.<br/><strong>Producido por Kingdom Pots con Claude Opus, GPT 6.1 Sol y Google Gemini 4</strong></p><p><strong>Entornos y bibliotecas de código abierto:</strong></p><ul><li><strong>Qt 6 (LGPL)</strong> — Entorno multiplataforma de interfaz de usuario, ventanas y gráficos de escritorio.</li><li><strong>Clipper2 (BSL-1.0)</strong> — Biblioteca de geometría poligonal 2D utilizada para operaciones booleanas de formas (Unir, Restar, Intersecar, Excluir) y desplazamiento/contornos de trazados.</li><li><strong>nanosvg (zlib)</strong> — Analizador SVG ligero utilizado para importar gráficos vectoriales y símbolos predefinidos.</li><li><strong>Miniz (MIT)</strong> — Biblioteca rápida de compresión sin pérdida y archivos ZIP utilizada para guardar y cargar archivos de proyecto <code>.kantanlogo</code>.</li><li><strong>Fluent System Icons (MIT)</strong> — Conjunto de iconos de código abierto de Microsoft utilizado en la barra de herramientas y la interfaz.</li></ul><p style="color:var(--muted);font-size:11px;">Consulta la carpeta notices para ver los textos completos de las licencias.</p>`
+    }
+  };
+
+  function applyWebLanguage(code) {
+    state.lang = code;
+    try { localStorage.setItem("kantanlogo_lang", code); } catch (e) {}
+    const t = I18N[code] || I18N.en;
+    document.documentElement.lang = code.replace("_", "-");
+    document.title = `${t.brand} ${VERSION} (WebGL)`;
+    document.getElementById("brandHeader").textContent = `${t.brand} ${VERSION}`;
+    document.getElementById("statusInfo").textContent = `512 × 512 · ${t.brand} v${VERSION} (WebGL)`;
+
+    const textIds = [
+      "btnNew", "btnTemplate", "btnPlaceImg", "btnSaveJson", "btnLoadJson", "btnExportPng", "btnExportSvg", "btnUndo",
+      "lblSnap", "btnAbout", "lblPreset", "btnConvertPath", "btnAddPointTop", "btnAlignCenter", "btnFit",
+      "lblTip", "lblSizePreview", "lblLayersDock", "lblInspectorDock", "lblFormName", "lblFormPos",
+      "lblFormSize", "lblFormRot", "lblFormFill", "lblFormStrokeW", "lblFormStrokeC", "lblFormText",
+      "lblPointDock", "lblFormPtPos", "lblFormPtBevel", "lblFormPtStyle", "lblTemplatesDock",
+      "ctxAddPoint", "ctxMovePtUp", "ctxMovePtDown", "ctxDelPoint", "ctxPlaceImg", "ctxDuplicate",
+      "ctxDeleteObj", "statusMsg", "aboutTitle"
+    ];
+    for (const key of textIds) {
+      const el = document.getElementById(key);
+      if (el && t[key] !== undefined) el.textContent = t[key];
+    }
+
+    const titleIds = ["btnLayerUp", "btnLayerDown", "btnLayerDel", "btnPtAdd", "btnPtUp", "btnPtDown", "btnPtDel"];
+    for (const key of titleIds) {
+      const el = document.getElementById(key);
+      if (el && t[key] !== undefined) el.title = t[key];
+    }
+
+    if (t.presets) {
+      const pSel = document.getElementById("shapePresetSelect");
+      if (pSel) {
+        for (const opt of pSel.options) {
+          if (t.presets[opt.value]) opt.textContent = t.presets[opt.value];
+        }
+      }
+    }
+    if (t.bevelStyles) {
+      const bSel = document.getElementById("inpPtStyle");
+      if (bSel) {
+        for (const opt of bSel.options) {
+          if (t.bevelStyles[opt.value]) opt.textContent = t.bevelStyles[opt.value];
+        }
+      }
+    }
+    if (t.tools) {
+      document.querySelectorAll(".tool-btn").forEach(btn => {
+        const toolKey = btn.dataset.tool;
+        if (toolKey && t.tools[toolKey]) btn.title = t.tools[toolKey];
+      });
+    }
+
+    document.getElementById("aboutBody").innerHTML = t.aboutBody;
+    syncUI();
+  }
+
+  const langSelect = document.getElementById("langSelect");
+  langSelect.addEventListener("change", e => applyWebLanguage(e.target.value));
+
+  // Initialize saved or default language
+  let initialLang = "en";
+  try {
+    const saved = localStorage.getItem("kantanlogo_lang");
+    if (saved && I18N[saved]) initialLang = saved;
+  } catch (e) {}
+  langSelect.value = initialLang;
+  applyWebLanguage(initialLang);
+
+  setTimeout(() => {
+    loadTemplate("bastion");
+    fitArtboard();
+  }, 30);
+})();
+</script>
+</body>
+</html>

@@ -4,7 +4,9 @@ Windows x64, C++20, Visual Studio 2022, MSVC 19.38.33141 (toolset 14.38.33130), 
 toolchain as Kantan NineSlice. Install the VS Desktop development with C++ workload and the pinned v143 toolset.
 Put CMake on PATH. Python 3.12 is used only to acquire dependencies.
 
-**Quickest way:** double-click `run.bat` in the project folder. It builds only what changed (the first build takes a
+**Quickest way:** double-click `run.bat` in the project folder, or use the CLI bridge `kantan.cmd` (`kantan build`,
+`kantan test`, `kantan package`, `kantan validate -Screenshots`, `kantan ship`, `kantan presets`, `kantan new`,
+`kantan inspect`, `kantan render`, `kantan export`). `run.bat` builds only what changed (the first build takes a
 few minutes), packages the runtime dependencies and starts the app. CMake uses Qt from `.deps`, or from
 `..\KantanNineSlice\.deps` when this project has none, and the launcher finds the CMake that ships with Visual
 Studio. Explicit `Qt6_DIR` or `CMAKE_PREFIX_PATH` settings take precedence. Packaging uses the Qt installation

@@ -68,15 +68,19 @@ class CanvasView final : public QWidget {
     std::optional<NodeRef> selectedNode() const {
         return node_;
     }
-    // Path menu operations on the directly selected path node.
+    void setSelectedNode(std::optional<NodeRef> node);
+    // Path operations on the directly selected path or node.
+    Result appendNode(std::optional<QPointF> artboardPos = std::nullopt);
+    Result moveSelectedNode(int delta);
     Result deleteNode();
     Result toggleNodeType();
-    QColor sampleColor(QPointF view) const;
-    QImage artwork() const {
+    QColor sampleColor(QPointF view);
+    QImage artwork() {
+        render();
         return cache_;
     }
     // Type straight onto the canvas; the live text updates as you type, one undo step on Enter.
-    void editTextInline(ObjectId id, bool selectAll = false);
+    void editTextInline(ObjectId id, bool selectAll = false, bool justCreated = false);
     void finishTextEdit(bool keep);
     bool editingText() const {
         return textEdit_ != nullptr;
@@ -133,7 +137,7 @@ class CanvasView final : public QWidget {
     const Object* directTarget() const;
     std::optional<std::pair<NodeRef, int>> nodeHandleAt(QPointF view) const; // part: 0 anchor, 1 in, 2 out
     void beginNodeDrag(NodeRef node, int part, QPointF view);
-    void updateNodeDrag(QPointF view, bool constrain);
+    void updateNodeDrag(QPointF view, Qt::KeyboardModifiers modifiers);
     Result insertNodeAt(QPointF view);
     void updateHover(QPointF view);
     void commitDraw(QPointF from, QPointF to, Qt::KeyboardModifiers modifiers);
@@ -176,6 +180,10 @@ class CanvasView final : public QWidget {
     bool duplicatedByDrag_{};
     QPlainTextEdit* textEdit_{};
     Object textObject_;
+    bool textCreated_{};
+    mutable const DocumentData* frameDoc_{};
+    mutable std::vector<ObjectId> frameSelection_;
+    mutable Frame frame_;
     SubPath pen_;
     bool penDragging_{};
     QPointF penCursor_;

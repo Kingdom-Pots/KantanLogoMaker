@@ -1,10 +1,15 @@
 <RCC><qresource prefix="/presets">
+    <file alias="bastion.svg">assets/presets/bastion.svg</file>
     <file alias="bolt.svg">assets/presets/bolt.svg</file>
+    <file alias="book.svg">assets/presets/book.svg</file>
     <file alias="check.svg">assets/presets/check.svg</file>
     <file alias="crown.svg">assets/presets/crown.svg</file>
+    <file alias="dairy.svg">assets/presets/dairy.svg</file>
     <file alias="drop.svg">assets/presets/drop.svg</file>
     <file alias="flame.svg">assets/presets/flame.svg</file>
+    <file alias="fruit.svg">assets/presets/fruit.svg</file>
     <file alias="laurel.svg">assets/presets/laurel.svg</file>
     <file alias="leaf.svg">assets/presets/leaf.svg</file>
     <file alias="paw.svg">assets/presets/paw.svg</file>
+    <file alias="tower.svg">assets/presets/tower.svg</file>
 </qresource></RCC>
